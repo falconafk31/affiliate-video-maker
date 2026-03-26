@@ -93,6 +93,7 @@
                 <th class="px-4 py-3 text-left w-28">Variasi</th>
                 <th class="px-4 py-3 text-left w-36">Produk</th>
                 <th class="px-4 py-3 text-left">Skrip Output</th>
+                <th class="px-4 py-3 text-center w-28">Video</th>
                 <th class="px-4 py-3 w-16"></th>
               </tr>
             </thead>
@@ -113,6 +114,18 @@
                 <td class="px-4 py-3 text-white font-medium">{{ log.input_product }}</td>
                 <td class="px-4 py-3 text-slate-300 text-xs leading-relaxed max-w-sm">
                   <p class="line-clamp-2">{{ log.output_script }}</p>
+                </td>
+                <td class="px-4 py-3 text-center">
+                  <a v-if="log.video_url" :href="apiBase + log.video_url" target="_blank"
+                     class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-xs font-medium text-white transition-colors"
+                     title="Tonton / Download Video">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Link
+                  </a>
+                  <span v-else class="text-slate-600 text-xs italic">-</span>
                 </td>
                 <td class="px-4 py-3">
                   <button @click="copyScript(log.output_script)"
@@ -162,9 +175,7 @@
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL !== undefined 
-  ? import.meta.env.VITE_API_BASE_URL 
-  : 'http://localhost:8080'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 const logs          = ref([])
 const loading       = ref(false)

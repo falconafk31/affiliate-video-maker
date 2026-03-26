@@ -21,8 +21,8 @@ COPY . .
 # Ensure temp directory exists
 RUN mkdir -p temp_processing
 
-# Expose port (8080 default for uvicorn)
-EXPOSE 8080
+# Expose port (8000 default for uvicorn)
+EXPOSE 8000
 
 # Start Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

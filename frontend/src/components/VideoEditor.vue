@@ -301,15 +301,14 @@ import { ref, reactive } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL !== undefined
-  ? import.meta.env.VITE_API_BASE_URL
-  : 'http://localhost:8080'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const fileInput      = ref(null)
 const selectedFile   = ref(null)
 const prompt         = ref('')
 const voiceModel     = ref('whisper')
+const logId          = ref('')
 const isDragging     = ref(false)
 const isLoading      = ref(false)
 const loadingMessage = ref('Memproses…')
@@ -390,6 +389,7 @@ async function generateHook() {
 
     const response = await axios.post(`${API_BASE_URL}/api/generate-hook`, formData)
     prompt.value        = response.data.script
+    logId.value         = response.data.log_id || ''
     hookGenerated.value = true
 
     setTimeout(() => {
@@ -398,8 +398,16 @@ async function generateHook() {
 
   } catch (err) {
     let msg = 'Gagal generate hook AI. Coba lagi.'
-    if (err.response?.data?.detail) msg = err.response.data.detail
-    else if (err.code === 'ECONNABORTED') msg = 'Timeout. Server AI sedang sibuk, coba lagi.'
+    if (err.response) {
+      const status = err.response.status
+      const detail = err.response.data?.detail
+      const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail)
+      msg = `Gagal (${status}): ${detailStr || err.message}`
+    } else if (err.code === 'ECONNABORTED') {
+      msg = 'Timeout. Server AI sedang sibuk, coba lagi.'
+    } else {
+      msg = `Koneksi gagal: ${err.message}`
+    }
     hookError.value = msg
   } finally {
     isGenerating.value = false
@@ -417,6 +425,10 @@ function validateFile(file) {
   if (!file) { errors.video = 'Pilih file video terlebih dahulu.'; return false }
   if (!file.name.toLowerCase().endsWith('.mp4')) {
     errors.video = 'Hanya file .mp4 yang diterima.'
+    return false
+  }
+  if (file.size > 500 * 1024 * 1024) {
+    errors.video = 'Ukuran video maksimal 500MB.'
     return false
   }
   errors.video = ''
@@ -465,16 +477,21 @@ async function handleSubmit() {
   outputVideoUrl.value = ''
 
   const messages = [
-    'Membuat AI voiceover…',
+    'Sedang membuat AI voiceover…',
     'Menggabungkan audio dengan video…',
     'Hampir selesai, rendering video akhir…',
   ]
   let msgIdx = 0
-  loadingMessage.value = messages[msgIdx]
-  const msgInterval = setInterval(() => {
-    msgIdx = (msgIdx + 1) % messages.length
+  loadingMessage.value = 'Mempersiapakan upload...'
+  let msgInterval = null
+
+  const startMessages = () => {
     loadingMessage.value = messages[msgIdx]
-  }, 4000)
+    msgInterval = setInterval(() => {
+      msgIdx = (msgIdx + 1) % messages.length
+      loadingMessage.value = messages[msgIdx]
+    }, 4000)
+  }
 
   try {
     const formData = new FormData()
@@ -482,11 +499,20 @@ async function handleSubmit() {
     formData.append('prompt_text', prompt.value.trim())
     formData.append('voice_model', voiceModel.value)
     formData.append('duration_mode', durationMode.value)
+    if (logId.value) formData.append('log_id', logId.value)
 
     const response = await axios.post(`${API_BASE_URL}/api/process-video`, formData, {
       responseType: 'blob',
       timeout: 300_000,
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        if (percentCompleted < 100) {
+          loadingMessage.value = `Mengunggah video: ${percentCompleted}%...`
+        } else if (percentCompleted === 100 && !msgInterval) {
+          startMessages()
+        }
+      }
     })
 
     const blob = new Blob([response.data], { type: 'video/mp4' })

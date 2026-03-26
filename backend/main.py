@@ -17,10 +17,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import requests
+import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 # Load environment variables from .env
 load_dotenv()
@@ -35,13 +37,16 @@ BASE_DIR = Path(__file__).parent
 TEMP_DIR = BASE_DIR / "temp_processing"
 TEMP_DIR.mkdir(exist_ok=True)
 
+VIDEOS_DIR = BASE_DIR / "static" / "videos"
+VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+
 ALLOWED_EXTENSIONS = {".mp4"}
 API_TIMEOUT_SECONDS = 120  # Pollinations can be slow for long text
 
 # ── Hook Generation Log (CSV) ───────────────────────────────────────────
 LOG_FILE   = BASE_DIR / "hook_logs.csv"
 LOG_LOCK   = threading.Lock()  # thread-safe writes
-LOG_HEADER = ["no", "time", "platform", "variation", "input_product", "output_script"]
+LOG_HEADER = ["no", "time", "platform", "variation", "input_product", "output_script", "log_id"]
 
 def _ensure_log_header():
     """Create log file with header if it does not exist."""
@@ -52,27 +57,44 @@ def _ensure_log_header():
 _ensure_log_header()
 
 
-def append_hook_log(platform: str, variation: str, product: str, script: str):
-    """Append one row to hook_logs.csv (thread-safe)."""
-    with LOG_LOCK:
-        # count existing rows to get the next sequential number
-        try:
-            with open(LOG_FILE, "r", encoding="utf-8") as f:
-                row_count = sum(1 for _ in csv.reader(f)) - 1  # subtract header
-        except Exception:
-            row_count = 0
+def append_hook_log(platform: str, variation: str, product: str, script: str) -> str:
+    """Append one row to hook_logs.csv and return generated log_id."""
+    log_id = str(uuid.uuid4())
+    try:
+        with LOG_LOCK:
+            # count existing rows to get the next sequential number
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8") as f:
+                    row_count = sum(1 for _ in csv.reader(f)) - 1  # subtract header
+            except Exception:
+                row_count = 0
 
-        row = [
-            row_count + 1,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            platform,
-            variation,
-            product,
-            script,
-        ]
-        with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(row)
-    logger.info("Hook log appended: row #%d | %s | %s", row_count + 1, platform, product)
+            row = [
+                row_count + 1,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                platform,
+                variation,
+                product,
+                script,
+                log_id,
+            ]
+            with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(row)
+        logger.info("Hook log appended: row #%d | %s | %s", row_count + 1, platform, product)
+    except Exception as e:
+        logger.error("Failed to append hook log (possibly file locked): %s", e)
+    return log_id
+    
+def clean_old_videos():
+    """Delete videos older than 7 days to conserve disk space."""
+    now = time.time()
+    for f in VIDEOS_DIR.glob("*.mp4"):
+        try:
+            if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
+                os.remove(f)
+                logger.info("Auto-deleted old video (7+ days): %s", f.name)
+        except Exception as e:
+            logger.error("Error deleting old video %s: %s", f, e)
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -93,11 +115,18 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust to your frontend URL in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "time": datetime.now().isoformat()}
+
+app.mount("/api/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -275,6 +304,8 @@ def merge_video_audio(
             temp_audiofile=str(output_path.parent / "temp_audio.m4a"),
             remove_temp=True,
             logger=None,
+            threads=4,
+            preset="ultrafast"
         )
         logger.info("Render complete: %s", output_path.name)
 
@@ -289,15 +320,16 @@ def merge_video_audio(
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 @app.post("/api/process-video")
-async def process_video(
-    background_tasks: BackgroundTasks,
-    video: UploadFile = File(..., description="Raw video file (.mp4 only)"),
-    prompt_text: str = Form(..., description="Hook/voiceover script for the AI"),
-    voice_model: str = Form("nova", description="Pollinations AI voice model"),
+def process_video(
+    prompt_text: str = Form(..., description="Teks hook untuk di-voiceover"),
+    voice_model: str = Form("nova", description="Voice preset: nova, shimmer, alloy, dst"),
+    video: UploadFile = File(..., description="Video sumber"),
     duration_mode: str = Form(
         "auto",
-        description="Duration matching: 'auto' (smart), 'loop_video' (loop video to audio), 'trim_audio' (trim audio to video)",
+        description="auto | loop_video | trim_audio",
     ),
+    log_id: str = Form(None, description="Opsional UUID log untuk melampirkan video ini"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     force_portrait: str = Form(
         "true",
         description="Force output to 9:16 portrait aspect ratio (true/false)",
@@ -322,9 +354,9 @@ async def process_video(
 
     try:
         # a) Save uploaded video — seek to 0 first to avoid "moov atom not found"
-        await video.seek(0)
+        video.file.seek(0)
         with open(raw_video_path, "wb") as buffer:
-            while chunk := await video.read(1024 * 1024):  # read 1 MB at a time
+            while chunk := video.file.read(1024 * 1024):  # read 1 MB at a time
                 buffer.write(chunk)
             buffer.flush()
             os.fsync(buffer.fileno())
@@ -344,18 +376,22 @@ async def process_video(
             duration_mode = "auto"
         portrait = force_portrait.lower() not in ("false", "0", "no")
 
-        # c + d + e) Merge video & audio (blocking — run in thread pool)
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait
-        )
+        # c + d + e) Merge video & audio (synchronous call directly inside thread pool)
+        merge_video_audio(raw_video_path, voice_path, output_path, duration_mode, portrait)
 
-        # g) Schedule cleanup after response is sent
+        # g) Schedule cleanup and persistence
+        final_video_path = output_path
+        if log_id:
+            final_video_path = VIDEOS_DIR / f"{log_id}.mp4"
+            shutil.copy(output_path, final_video_path)
+            logger.info("Persisted video to static/videos for log_id: %s", log_id)
+
+        background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
         # f) Return final video
         return FileResponse(
-            path=str(output_path),
+            path=str(final_video_path),
             media_type="video/mp4",
             filename="affiliate_video.mp4",
             background=None,  # FileResponse handles streaming; cleanup via background_tasks
@@ -403,7 +439,7 @@ HOOK_STYLE_PROMPTS = {
 }
 
 @app.post("/api/generate-hook")
-async def generate_hook(
+def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
     hook_type: str    = Form("tiktok", description="Platform: tiktok atau shopee"),
     variation: str    = Form("viral",  description="Variasi hook style"),
@@ -458,9 +494,9 @@ async def generate_hook(
         logger.info("Hook generated: %d chars", len(script))
 
         # ── Write to CSV log ──────────────────────────────────────────
-        append_hook_log(hook_type, variation, product_name, script)
+        log_id = append_hook_log(hook_type, variation, product_name, script)
 
-        return {"script": script, "product": product_name, "platform": hook_type, "variation": variation}
+        return {"script": script, "product": product_name, "platform": hook_type, "variation": variation, "log_id": log_id}
 
     except requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="Pollinations text API timeout. Coba lagi.")
@@ -474,13 +510,17 @@ async def generate_hook(
 # ── Log Viewer Endpoints ───────────────────────────────────────────────────────
 @app.get("/api/logs")
 def get_logs():
-    """Return all hook generation logs as JSON array."""
+    """Return all hook generation logs as JSON array with dynamic video mapping."""
     _ensure_log_header()
     rows = []
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # Add video URL statelessly if the file currently exists
+                log_id = row.get("log_id")
+                if log_id and (VIDEOS_DIR / f"{log_id}.mp4").exists():
+                    row["video_url"] = f"/api/videos/{log_id}.mp4"
                 rows.append(row)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
