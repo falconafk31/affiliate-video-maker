@@ -115,26 +115,31 @@ def cleanup_files(*paths: Path) -> None:
 
 def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path) -> None:
     """
-    Call POST /v1/audio/speech and save the audio response to output_path.
-    Raises HTTPException on any failure.
+    Call POST /v1/audio/speech or GET /audio/... depending on voice model,
+    and save the audio response to output_path. Raises HTTPException on failure.
     """
-    endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech"
-    headers  = {
-        "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    # Pass the raw script directly — TTS reads it as-is
-    payload = {"input": prompt, "voice": voice, "response_format": "mp3"}
-
-    logger.info("Calling Pollinations: %s voice=%s prompt_chars=%d", endpoint, voice, len(prompt))
+    logger.info("Preparing Pollinations request for voice: %s", voice)
 
     try:
-        response = requests.post(
-            endpoint, headers=headers, json=payload,
-            timeout=API_TIMEOUT_SECONDS, stream=True,
-        )
+        if voice.lower() == "whisper":
+            import urllib.parse
+            encoded_prompt = urllib.parse.quote(prompt)
+            endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/audio/{encoded_prompt}?model={voice}"
+            headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
+            response = requests.get(endpoint, headers=headers, timeout=API_TIMEOUT_SECONDS, stream=True)
+        else:
+            endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech"
+            headers  = {
+                "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            payload = {"input": prompt, "voice": voice, "response_format": "mp3"}
+            response = requests.post(
+                endpoint, headers=headers, json=payload,
+                timeout=API_TIMEOUT_SECONDS, stream=True,
+            )
     except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Pollinations AI API timed out. Try a shorter prompt.")
+        raise HTTPException(status_code=504, detail="Pollinations AI API timed out.")
     except requests.exceptions.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Error calling Pollinations AI: {exc}")
 
