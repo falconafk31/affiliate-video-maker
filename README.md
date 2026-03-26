@@ -14,11 +14,11 @@
 | Feature | Description |
 |---|---|
 | 🤖 **AI Hook Generator** | Auto-generate Indonesian TikTok & Shopee affiliate hooks from a product name |
-| 🎙️ **AI Voiceover** | Powered by Pollinations AI — no additional TTS service needed |
-| 🎬 **Video Merge** | MoviePy + FFmpeg: strips original audio, adds AI voice, renders MP4 |
+| 🎙️ **AI Voiceover** | Powered by Pollinations AI — natural-sounding Indonesian voiceovers |
+| 🎬 **Video Merge** | MoviePy + FFmpeg: 4x faster rendering with optimized threads and `ultrafast` preset |
+| 🕒 **7-Day Video Log** | Rendered videos are saved and accessible via the UI for 7 days (auto-delete) |
+| 📊 **Log Prompt UI** | View generation history and watch/download rendered videos directly |
 | 🔁 **Smart Duration Sync** | 3 modes: Auto (smart), Loop Video, Trim Audio |
-| 📥 **Drag & Drop Upload** | Simple .mp4 upload with file validation |
-| 🌙 **Dark UI** | Modern glassmorphism design with Tailwind CSS |
 | 🛠️ **MCP Server** | Exposes `generate_ai_voice` & `merge_video_and_voice` as MCP tools |
 
 ---
@@ -108,7 +108,16 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+Open **http://localhost:5173** in your browser. (Note: Backend must be running on port 8000).
+
+---
+
+## 🕒 Video Retention Policy
+
+Rendered videos are saved in `backend/static/videos/`. To keep the server storage clean:
+*   Videos are kept for **7 days**.
+*   A background task `clean_old_videos` automatically deletes files older than 7 days.
+*   Log entries in the UI will show a "-" placeholder if the physical video file has been deleted.
 
 ---
 
@@ -116,9 +125,10 @@ Open **http://localhost:5173** in your browser.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Health check + API key status |
-| `GET` | `/api/debug` | Full diagnostics (FFmpeg, MoviePy, Pollinations connectivity) |
-| `POST` | `/api/process-video` | Main endpoint — processes video + generates voiceover |
+| `GET` | `/api/health` | Health check + API status |
+| `GET` | `/api/logs` | Fetch hook generation history with video URLs |
+| `POST` | `/api/generate-hook` | Generate AI script + save to CSV log |
+| `POST` | `/api/process-video` | Render video + attach to existing log ID |
 
 ### POST `/api/process-video`
 
@@ -127,8 +137,9 @@ Open **http://localhost:5173** in your browser.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `video` | File (.mp4) | ✅ | — | Raw video clip |
-| `prompt_text` | string | ✅ | — | Voiceover script (Indonesian recommended) |
-| `voice_model` | string | ❌ | `nova` | Pollinations voice: `nova`, `shimmer`, `alloy`, `echo`, `fable`, `onyx` |
+| `prompt_text` | string | ✅ | — | Voiceover script |
+| `log_id` | string | ❌ | — | UUID from generation log (links video to history) |
+| `voice_model` | string | ❌ | `whisper` | Pollinations voice model |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
 
 **Response:** Binary MP4 file (`video/mp4`)
