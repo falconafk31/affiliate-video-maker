@@ -309,7 +309,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL !== undefined
 const fileInput      = ref(null)
 const selectedFile   = ref(null)
 const prompt         = ref('')
-const voiceModel     = ref('nova')
+const voiceModel     = ref('whisper')
 const isDragging     = ref(false)
 const isLoading      = ref(false)
 const loadingMessage = ref('Memproses…')
@@ -351,12 +351,6 @@ const durationModes = [
 
 // ── Voice Options ─────────────────────────────────────────────────────────────
 const voiceOptions = [
-  { value: 'nova',    label: 'Nova — Perempuan, Energik ⭐ (Rekomendasi ID)' },
-  { value: 'shimmer', label: 'Shimmer — Perempuan, Lembut' },
-  { value: 'alloy',   label: 'Alloy — Netral, Smooth' },
-  { value: 'echo',    label: 'Echo — Laki-laki, Dalam' },
-  { value: 'fable',   label: 'Fable — Laki-laki, Naratif' },
-  { value: 'onyx',    label: 'Onyx — Laki-laki, Tegas' },
   { value: 'whisper', label: 'Whisper — Laki-laki/Perempuan, Natural Berbisik' },
 ]
 
