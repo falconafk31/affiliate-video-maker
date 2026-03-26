@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile
       args:
         # Pass the API URL to be baked into Nuxt/Vue during build
-        VITE_API_BASE_URL: /api
+        VITE_API_BASE_URL: ""
     container_name: affiliate_frontend
     restart: unless-stopped
     ports:
