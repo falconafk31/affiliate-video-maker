@@ -301,7 +301,7 @@ import { ref, reactive } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8000`
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:9000`
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const fileInput      = ref(null)
