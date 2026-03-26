@@ -357,6 +357,7 @@ const voiceOptions = [
   { value: 'echo',    label: 'Echo — Laki-laki, Dalam' },
   { value: 'fable',   label: 'Fable — Laki-laki, Naratif' },
   { value: 'onyx',    label: 'Onyx — Laki-laki, Tegas' },
+  { value: 'whisper', label: 'Whisper — Laki-laki/Perempuan, Natural Berbisik' },
 ]
 
 // ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
