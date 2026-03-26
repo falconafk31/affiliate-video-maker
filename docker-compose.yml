@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: affiliate_backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Inject the .env file contents
+      - POLLINATIONS_API_URL=${POLLINATIONS_API_URL:-https://gen.pollinations.ai}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+    volumes:
+      # Persist the logs
+      - ./backend/hook_logs.csv:/app/hook_logs.csv
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Pass the API URL to be baked into Nuxt/Vue during build
+        VITE_API_BASE_URL: /api
+    container_name: affiliate_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
