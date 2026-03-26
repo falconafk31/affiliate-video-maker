@@ -123,7 +123,9 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
     try:
         if voice.lower() == "whisper":
             import urllib.parse
-            encoded_prompt = urllib.parse.quote(prompt)
+            # Replace slashes and newlines which can cause 404s in Nginx URIs
+            safe_prompt = prompt.replace("/", " ").replace("\n", " ")
+            encoded_prompt = urllib.parse.quote(safe_prompt)
             endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/audio/{encoded_prompt}?model={voice}"
             headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
             response = requests.get(endpoint, headers=headers, timeout=API_TIMEOUT_SECONDS, stream=True)
