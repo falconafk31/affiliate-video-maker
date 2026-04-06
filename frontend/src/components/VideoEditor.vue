@@ -130,13 +130,35 @@
          STEP 2 — Video & Voiceover Form
     ════════════════════════════════════════════════════════════════════════ -->
     <form @submit.prevent="handleSubmit" class="glass-card p-6 sm:p-8 space-y-6">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="w-7 h-7 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">2</span>
-        <h3 class="text-base font-semibold text-white">Upload Video &amp; Proses</h3>
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <div class="flex items-center gap-2">
+          <span class="w-7 h-7 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">2</span>
+          <h3 class="text-base font-semibold text-white">Pilih Mode &amp; Proses</h3>
+        </div>
+        
+        <!-- Mode Switcher -->
+        <div class="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700">
+          <button 
+            type="button" 
+            class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+            :class="mode === 'video' ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'"
+            @click="mode = 'video'"
+          >
+            Video + Audio
+          </button>
+          <button 
+            type="button" 
+            class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+            :class="mode === 'audio' ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'"
+            @click="mode = 'audio'"
+          >
+            Hanya Audio (MP3)
+          </button>
+        </div>
       </div>
 
-      <!-- Drag & Drop Video Upload -->
-      <div>
+      <!-- Drag & Drop Video Upload — Only if mode is 'video' -->
+      <div v-if="mode === 'video'" class="animate-fade-in">
         <label class="block text-sm font-medium text-slate-300 mb-2">
           Video File <span class="text-brand-400">*</span>
         </label>
@@ -252,7 +274,7 @@
         <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
-        {{ isLoading ? loadingMessage : '🎬 Buat Video Sekarang' }}
+        {{ isLoading ? loadingMessage : (mode === 'video' ? '🎬 Buat Video Sekarang' : '🎙️ Generate Audio MP3') }}
       </button>
 
       <!-- Error -->
@@ -268,28 +290,42 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          Result Card
     ════════════════════════════════════════════════════════════════════════ -->
-    <div v-if="outputVideoUrl" id="result-section" class="glass-card p-6 sm:p-8 space-y-5 animate-fade-in">
+    <div v-if="outputVideoUrl || outputAudioUrl" id="result-section" class="glass-card p-6 sm:p-8 space-y-5 animate-fade-in">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
           <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-white">Video kamu sudah siap! 🎉</h3>
+        <h3 class="text-lg font-semibold text-white">
+          {{ outputVideoUrl ? 'Video kamu sudah siap! 🎉' : 'Audio kamu sudah siap! 🎙️' }}
+        </h3>
       </div>
 
-      <video id="output-video" :src="outputVideoUrl" controls class="w-full rounded-xl bg-black max-h-[480px]"></video>
+      <!-- Video Result -->
+      <video v-if="outputVideoUrl" id="output-video" :src="outputVideoUrl" controls class="w-full rounded-xl bg-black max-h-[480px]"></video>
+      
+      <!-- Audio Result -->
+      <div v-if="outputAudioUrl && !outputVideoUrl" class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 flex flex-col items-center gap-4">
+        <div class="w-16 h-16 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-400 animate-pulse">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        </div>
+        <audio controls :src="outputAudioUrl" class="w-full"></audio>
+        <p class="text-slate-400 text-xs">Voiceover generated successfully.</p>
+      </div>
 
-      <a id="download-btn" :href="outputVideoUrl" download="affiliate_video.mp4" class="btn-primary w-full text-center">
+      <a id="download-btn" :href="outputVideoUrl || outputAudioUrl" :download="outputVideoUrl ? 'affiliate_video.mp4' : 'voiceover.mp3'" class="btn-primary w-full text-center">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
-        Download Video
+        Download {{ outputVideoUrl ? 'Video' : 'Audio' }}
       </a>
 
       <button id="reset-btn" type="button" class="btn-secondary w-full" @click="reset">
-        Buat Video Lainnya
+        Buat {{ outputVideoUrl ? 'Video' : 'Audio' }} Lainnya
       </button>
     </div>
 
@@ -314,7 +350,9 @@ const isLoading      = ref(false)
 const loadingMessage = ref('Memproses…')
 const serverError    = ref('')
 const outputVideoUrl = ref('')
+const outputAudioUrl = ref('')
 const durationMode   = ref('auto')
+const mode           = ref('video') // 'video' | 'audio'
 
 // Hook generator state
 const productName      = ref('')
@@ -360,12 +398,22 @@ const hookVariations = {
     { key: 'shock',  label: '😱 Shock & Reveal' },
     { key: 'story',  label: '💬 Cerita Personal' },
     { key: 'fomo',   label: '⚡ FOMO Urgency'   },
+    { key: 'v2_problem',   label: '🚀 V2: Problem' },
+    { key: 'v2_personal',  label: '🚀 V2: Personal' },
+    { key: 'v2_education', label: '🚀 V2: Edukasi' },
+    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
+    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
   ],
   shopee: [
     { key: 'flash',   label: '🛒 Flash Sale'    },
     { key: 'review',  label: '⭐ Review Jujur'  },
     { key: 'bundle',  label: '🎁 Bundle Deal'   },
     { key: 'premium', label: '💎 Premium Value' },
+    { key: 'v2_problem',   label: '🚀 V2: Problem' },
+    { key: 'v2_personal',  label: '🚀 V2: Personal' },
+    { key: 'v2_education', label: '🚀 V2: Edukasi' },
+    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
+    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
   ],
 }
 
@@ -436,7 +484,7 @@ function validateFile(file) {
 }
 
 function validateForm() {
-  let valid = validateFile(selectedFile.value)
+  let valid = mode.value === 'video' ? validateFile(selectedFile.value) : true
   if (!prompt.value.trim()) {
     errors.prompt = 'Skrip voiceover tidak boleh kosong. Generate hook dulu atau tulis sendiri.'
     valid = false
@@ -495,17 +543,22 @@ async function handleSubmit() {
 
   try {
     const formData = new FormData()
-    formData.append('video', selectedFile.value)
+    if (mode.value === 'video') formData.append('video', selectedFile.value)
     formData.append('prompt_text', prompt.value.trim())
     formData.append('voice_model', voiceModel.value)
-    formData.append('duration_mode', durationMode.value)
+    if (mode.value === 'video') formData.append('duration_mode', durationMode.value)
     if (logId.value) formData.append('log_id', logId.value)
 
-    const response = await axios.post(`${API_BASE_URL}/api/process-video`, formData, {
+    const endpoint = mode.value === 'video' ? '/api/process-video' : '/api/generate-audio'
+    const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData, {
       responseType: 'blob',
       timeout: 300_000,
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
+        if (mode.value === 'audio') {
+          loadingMessage.value = 'Sedang membuat AI voiceover…'
+          return
+        }
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
         if (percentCompleted < 100) {
           loadingMessage.value = `Mengunggah video: ${percentCompleted}%...`
@@ -515,8 +568,14 @@ async function handleSubmit() {
       }
     })
 
-    const blob = new Blob([response.data], { type: 'video/mp4' })
-    outputVideoUrl.value = URL.createObjectURL(blob)
+    const contentType = mode.value === 'video' ? 'video/mp4' : 'audio/mpeg'
+    const blob = new Blob([response.data], { type: contentType })
+    
+    if (mode.value === 'video') {
+      outputVideoUrl.value = URL.createObjectURL(blob)
+    } else {
+      outputAudioUrl.value = URL.createObjectURL(blob)
+    }
 
     setTimeout(() => {
       document.getElementById('result-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -548,10 +607,11 @@ function reset() {
   clearFile()
   prompt.value        = ''
   productName.value   = ''
-  voiceModel.value    = 'nova'
+  voiceModel.value    = 'whisper'
   durationMode.value  = 'auto'
   hookGenerated.value = false
   outputVideoUrl.value = ''
+  outputAudioUrl.value = ''
   serverError.value   = ''
   errors.video        = ''
   errors.prompt       = ''

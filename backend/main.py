@@ -40,6 +40,9 @@ TEMP_DIR.mkdir(exist_ok=True)
 VIDEOS_DIR = BASE_DIR / "static" / "videos"
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
+AUDIOS_DIR = BASE_DIR / "static" / "audios"
+AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+
 ALLOWED_EXTENSIONS = {".mp4"}
 API_TIMEOUT_SECONDS = 120  # Pollinations can be slow for long text
 
@@ -88,6 +91,7 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
 def clean_old_videos():
     """Delete videos older than 7 days to conserve disk space."""
     now = time.time()
+    # Clean videos
     for f in VIDEOS_DIR.glob("*.mp4"):
         try:
             if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
@@ -95,13 +99,24 @@ def clean_old_videos():
                 logger.info("Auto-deleted old video (7+ days): %s", f.name)
         except Exception as e:
             logger.error("Error deleting old video %s: %s", f, e)
+            
+    # Clean audios
+    for f in AUDIOS_DIR.glob("*.mp3"):
+        try:
+            if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
+                os.remove(f)
+                logger.info("Auto-deleted old audio (7+ days): %s", f.name)
+        except Exception as e:
+            logger.error("Error deleting old audio %s: %s", f, e)
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Ensure temp directory exists on startup."""
+    """Ensure temp/static directories exist on startup."""
     TEMP_DIR.mkdir(exist_ok=True)
+    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -127,6 +142,7 @@ def health_check():
     return {"status": "ok", "time": datetime.now().isoformat()}
 
 app.mount("/api/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
+app.mount("/api/audios", StaticFiles(directory=AUDIOS_DIR), name="audios")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -438,6 +454,27 @@ HOOK_STYLE_PROMPTS = {
     },
 }
 
+HOOK_V2_SYSTEM_PROMPT = """Kamu adalah Kreator Video yang sudah viral puluhan kali.
+Kamu BUKAN copywriter kaku yang menulis template iklan — kamu adalah ORANG SUNGGUHAN yang bicara natural.
+
+## SIAPA KAMU
+Kamu bicara seperti: Customer yang excited nemuin produk bagus, atau orang yang iseng review barang barunya, atau teman yang kasih rekomendasi jujur. 
+Nadamu santai, hangat, manusiawi, dan sama sekali TIDAK terasa seperti "iklan".
+
+## ATURAN EMAS (DILARANG KERAS)
+- DILARANG menggunakan kata pembuka template bot seperti: "Lagi nyari...", "Capek sama...", "Ini dia rahasianya...", "Gak disangka!", "Kalian wajib tau!", "Sering gak sih...". 
+- DILARANG menggunakan pola kalimat yang sama berulang. Setiap hook harus terasa ditulis ulang dari nol.
+- DILARANG menggunakan emoji atau tanda bintang.
+- Gunakan Bahasa Indonesia sehari-hari/gaul yang luwes (bisa campur dikit istilah tren yang pas).
+
+## JIWA HOOK (Tujuan Emosi) :
+1. PROBLEM: Sentuh masalah nyata yang relatable buat audiens produk ini.
+2. PERSONAL: Ceritakan kejutan/pengalaman jujur saat mencoba produk (Skeptis -> Terkejut).
+3. EDUCATION: Kasih insight/fakta baru yang bikin orang bilang "oh gitu ya?".
+4. CONTRA: Lawan asumsi umum (misal: "barang murah biasanya jelek, tapi...").
+
+TUGAS: Tulis SATU skrip hook yang sangat natural berdasarkan produk di bawah."""
+
 @app.post("/api/generate-hook")
 def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
@@ -456,6 +493,21 @@ def generate_hook(
 
     styles = HOOK_STYLE_PROMPTS.get(hook_type, HOOK_STYLE_PROMPTS["tiktok"])
     style_instruction = styles.get(variation, list(styles.values())[0])
+    
+    current_system_prompt = HOOK_SYSTEM_PROMPT
+    
+    # Hook V2 Category Handling
+    v2_map = {
+        "v2_problem":   "Angle: PROBLEM-BASED. Sentuh masalah nyata yang membuat audiens merasa 'itu gue banget'. Jangan sebut solusi dulu.",
+        "v2_personal":  "Angle: PERSONAL EXPERIENCE. Ceritakan kejutan jujur (awal skeptis -> kaget). Harus terasa seperti cerita orang biasa.",
+        "v2_education": "Angle: EDUCATION. Berikan insight/fakta unik yang bikin orang tua/audiens bilang 'oh iya ya?'.",
+        "v2_contra":    "Angle: CONTRA OPINION. Berani lawan asumsi umum (misal: 'mainan mahal belum tentu bagus') dengan jujur.",
+        "v2_visual":    "Angle: VISUAL SHOCK. Tulis deskripsi adegan visual + Teks Overlay. Format: VISUAL: [adegan] | TEKS: [overlay]."
+    }
+
+    if variation in v2_map:
+        current_system_prompt = HOOK_V2_SYSTEM_PROMPT
+        style_instruction = v2_map[variation]
 
     platform_label = "TikTok" if hook_type == "tiktok" else "Shopee"
     user_prompt = (
@@ -478,7 +530,7 @@ def generate_hook(
             json={
                 "model": "gemini-fast",
                 "messages": [
-                    {"role": "system", "content": HOOK_SYSTEM_PROMPT},
+                    {"role": "system", "content": current_system_prompt},
                     {"role": "user",   "content": user_prompt},
                 ],
                 "temperature": 0.85,
@@ -507,6 +559,51 @@ def generate_hook(
         raise HTTPException(status_code=502, detail=f"Unexpected API response format: {exc}")
 
 
+@app.post("/api/generate-audio")
+def generate_audio_only(
+    background_tasks: BackgroundTasks,
+    prompt_text: str = Form(..., description="The script text"),
+    voice_model: str = Form("whisper", description="Voice model"),
+    log_id: str      = Form(None, description="Optional log ID to link with"),
+):
+    """
+    Generate only the audio MP3 from text script.
+    """
+    job_id = str(uuid.uuid4())
+    job_dir = TEMP_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    try:
+        # a) Generate Voice
+        voice_path = job_dir / "voice.mp3"
+        generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+
+        # b) Persist to static folder
+        target_id = log_id if log_id else job_id
+        final_audio_path = AUDIOS_DIR / f"{target_id}.mp3"
+        shutil.copy(voice_path, final_audio_path)
+        logger.info("Persisted audio to static/audios for id: %s", target_id)
+
+        # c) Schedule cleanup
+        background_tasks.add_task(clean_old_videos)
+        background_tasks.add_task(cleanup_files, job_dir)
+
+        # d) Return MP3
+        return FileResponse(
+            path=str(final_audio_path),
+            media_type="audio/mpeg",
+            filename=f"voiceover_{target_id}.mp3"
+        )
+
+    except HTTPException:
+        cleanup_files(job_dir)
+        raise
+    except Exception as e:
+        cleanup_files(job_dir)
+        logger.error("Error in /api/generate-audio: %s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Log Viewer Endpoints ───────────────────────────────────────────────────────
 @app.get("/api/logs")
 def get_logs():
@@ -519,8 +616,11 @@ def get_logs():
             for row in reader:
                 # Add video URL statelessly if the file currently exists
                 log_id = row.get("log_id")
-                if log_id and (VIDEOS_DIR / f"{log_id}.mp4").exists():
-                    row["video_url"] = f"/api/videos/{log_id}.mp4"
+                if log_id:
+                    if (VIDEOS_DIR / f"{log_id}.mp4").exists():
+                        row["video_url"] = f"/api/videos/{log_id}.mp4"
+                    if (AUDIOS_DIR / f"{log_id}.mp3").exists():
+                        row["audio_url"] = f"/api/audios/{log_id}.mp3"
                 rows.append(row)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")

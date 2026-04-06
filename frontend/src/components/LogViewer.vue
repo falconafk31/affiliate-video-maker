@@ -93,7 +93,7 @@
                 <th class="px-4 py-3 text-left w-28">Variasi</th>
                 <th class="px-4 py-3 text-left w-36">Produk</th>
                 <th class="px-4 py-3 text-left">Skrip Output</th>
-                <th class="px-4 py-3 text-center w-28">Video</th>
+                <th class="px-4 py-3 text-center w-40">Media</th>
                 <th class="px-4 py-3 w-16"></th>
               </tr>
             </thead>
@@ -116,16 +116,30 @@
                   <p class="line-clamp-2">{{ log.output_script }}</p>
                 </td>
                 <td class="px-4 py-3 text-center">
-                  <a v-if="log.video_url" :href="apiBase + log.video_url" target="_blank"
-                     class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-xs font-medium text-white transition-colors"
-                     title="Tonton / Download Video">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    Link
-                  </a>
-                  <span v-else class="text-slate-600 text-xs italic">-</span>
+                  <div class="flex flex-col gap-1.5 items-center justify-center">
+                    <!-- Video Link -->
+                    <a v-if="log.video_url" :href="apiBase + log.video_url" target="_blank"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-[10px] font-medium text-white transition-colors w-full justify-center"
+                       title="Tonton / Download Video">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                      Video
+                    </a>
+                    
+                    <!-- Audio Link -->
+                    <a v-if="log.audio_url" :href="apiBase + log.audio_url" target="_blank"
+                       class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-[10px] font-medium text-white transition-colors w-full justify-center"
+                       title="Dengarkan / Download MP3">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                      </svg>
+                      Audio
+                    </a>
+
+                    <span v-if="!log.video_url && !log.audio_url" class="text-slate-600 text-xs italic">-</span>
+                  </div>
                 </td>
                 <td class="px-4 py-3">
                   <button @click="copyScript(log.output_script)"
