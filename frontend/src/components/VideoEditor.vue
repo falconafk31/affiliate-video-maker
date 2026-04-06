@@ -551,7 +551,6 @@ async function handleSubmit() {
 
     const endpoint = mode.value === 'video' ? '/api/process-video' : '/api/generate-audio'
     const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData, {
-      responseType: 'blob',
       timeout: 300_000,
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
@@ -568,13 +567,12 @@ async function handleSubmit() {
       }
     })
 
-    const contentType = mode.value === 'video' ? 'video/mp4' : 'audio/mpeg'
-    const blob = new Blob([response.data], { type: contentType })
+    const data = response.data
     
     if (mode.value === 'video') {
-      outputVideoUrl.value = URL.createObjectURL(blob)
+      outputVideoUrl.value = API_BASE_URL + data.video_url
     } else {
-      outputAudioUrl.value = URL.createObjectURL(blob)
+      outputAudioUrl.value = API_BASE_URL + data.audio_url
     }
 
     setTimeout(() => {

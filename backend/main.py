@@ -405,13 +405,12 @@ def process_video(
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
-        # f) Return final video
-        return FileResponse(
-            path=str(final_video_path),
-            media_type="video/mp4",
-            filename="affiliate_video.mp4",
-            background=None,  # FileResponse handles streaming; cleanup via background_tasks
-        )
+        # f) Return Success Info
+        return {
+            "status": "success",
+            "video_url": f"/api/videos/{log_id}.mp4" if log_id else None,
+            "log_id": log_id
+        }
 
     except HTTPException as he:
         cleanup_files(job_dir)
@@ -588,12 +587,12 @@ def generate_audio_only(
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
-        # d) Return MP3
-        return FileResponse(
-            path=str(final_audio_path),
-            media_type="audio/mpeg",
-            filename=f"voiceover_{target_id}.mp3"
-        )
+        # d) Return JSON Meta
+        return {
+            "status": "success",
+            "audio_url": f"/api/audios/{target_id}.mp3",
+            "log_id": target_id
+        }
 
     except HTTPException:
         cleanup_files(job_dir)
