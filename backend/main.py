@@ -25,10 +25,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-# Load environment variables from .env
 load_dotenv()
 
-# ── Constants ────────────────────────────────────────────────────────────────
+# ── Constants ─────────────────────────────────────────────────────────────────
 POLLINATIONS_API_URL = os.getenv("POLLINATIONS_API_URL", "https://gen.pollinations.ai")
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
 if not POLLINATIONS_API_KEY:
@@ -45,15 +44,14 @@ AUDIOS_DIR = BASE_DIR / "static" / "audios"
 AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".mp4"}
-API_TIMEOUT_SECONDS = 120  # Pollinations can be slow for long text
+API_TIMEOUT_SECONDS = 120
 
-# ── Hook Generation Log (CSV) ───────────────────────────────────────────
+# ── Hook Generation Log (CSV) ─────────────────────────────────────────────────
 LOG_FILE   = BASE_DIR / "hook_logs.csv"
-LOG_LOCK   = threading.Lock()  # thread-safe writes
+LOG_LOCK   = threading.Lock()
 LOG_HEADER = ["no", "time", "platform", "variation", "input_product", "output_script", "log_id"]
 
 def _ensure_log_header():
-    """Create log file with header if it does not exist."""
     if not LOG_FILE.exists():
         with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(LOG_HEADER)
@@ -62,7 +60,6 @@ _ensure_log_header()
 
 
 def append_hook_log(platform: str, variation: str, product: str, script: str) -> str:
-    """Append one row to hook_logs.csv and return generated log_id."""
     log_id = str(uuid.uuid4())
     try:
         with LOG_LOCK:
@@ -71,48 +68,40 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
                     row_count = sum(1 for _ in csv.reader(f)) - 1
             except Exception:
                 row_count = 0
-
             row = [
                 row_count + 1,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                platform,
-                variation,
-                product,
-                script,
-                log_id,
+                platform, variation, product, script, log_id,
             ]
             with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerow(row)
         logger.info("Hook log appended: row #%d | %s | %s", row_count + 1, platform, product)
     except Exception as e:
-        logger.error("Failed to append hook log (possibly file locked): %s", e)
+        logger.error("Failed to append hook log: %s", e)
     return log_id
 
-    
+
 def clean_old_videos():
-    """Delete videos older than 7 days to conserve disk space."""
     now = time.time()
     for f in VIDEOS_DIR.glob("*.mp4"):
         try:
             if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
                 os.remove(f)
-                logger.info("Auto-deleted old video (7+ days): %s", f.name)
+                logger.info("Auto-deleted old video: %s", f.name)
         except Exception as e:
             logger.error("Error deleting old video %s: %s", f, e)
-            
     for f in AUDIOS_DIR.glob("*.mp3"):
         try:
             if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
                 os.remove(f)
-                logger.info("Auto-deleted old audio (7+ days): %s", f.name)
+                logger.info("Auto-deleted old audio: %s", f.name)
         except Exception as e:
             logger.error("Error deleting old audio %s: %s", f, e)
 
 
-# ── Lifespan ─────────────────────────────────────────────────────────────────
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Ensure temp/static directories exist on startup."""
     TEMP_DIR.mkdir(exist_ok=True)
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -146,7 +135,6 @@ app.mount("/api/audios", StaticFiles(directory=AUDIOS_DIR), name="audios")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def cleanup_files(*paths: Path) -> None:
-    """Remove files and directories silently."""
     for p in paths:
         try:
             if p.is_dir():
@@ -158,12 +146,7 @@ def cleanup_files(*paths: Path) -> None:
 
 
 def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path) -> None:
-    """
-    Call POST /v1/audio/speech or GET /audio/... depending on voice model,
-    and save the audio response to output_path. Raises HTTPException on failure.
-    """
     logger.info("Preparing Pollinations request for voice: %s", voice)
-
     try:
         if voice.lower() == "whisper":
             import urllib.parse
@@ -174,7 +157,7 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
             response = requests.get(endpoint, headers=headers, timeout=API_TIMEOUT_SECONDS, stream=True)
         else:
             endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech"
-            headers  = {
+            headers = {
                 "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
                 "Content-Type": "application/json",
             }
@@ -193,24 +176,17 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
                 response.status_code, ct, response.headers.get("content-length", "?"))
 
     if response.status_code == 401:
-        raise HTTPException(status_code=401,
-            detail="Invalid Pollinations API key (401). Check POLLINATIONS_API_KEY in .env.")
+        raise HTTPException(status_code=401, detail="Invalid Pollinations API key (401).")
     if response.status_code == 402:
-        raise HTTPException(status_code=402,
-            detail="Insufficient Pollinations credits (402). Top up at enter.pollinations.ai.")
+        raise HTTPException(status_code=402, detail="Insufficient Pollinations credits (402).")
     if response.status_code == 404:
-        raise HTTPException(status_code=502,
-            detail=f"Pollinations audio endpoint not found (404). URL: {endpoint}")
+        raise HTTPException(status_code=502, detail=f"Pollinations audio endpoint not found (404). URL: {endpoint}")
     if not response.ok:
-        preview = response.text[:300]
-        raise HTTPException(status_code=502,
-            detail=f"Pollinations returned HTTP {response.status_code}: {preview}")
-
+        raise HTTPException(status_code=502, detail=f"Pollinations returned HTTP {response.status_code}: {response.text[:300]}")
     if any(t in ct for t in ("text/html", "text/plain", "application/json")):
         body = response.text[:500]
         logger.error("Pollinations returned non-audio body: %s", body)
-        raise HTTPException(status_code=502,
-            detail=f"Pollinations returned non-audio content ({ct}): {body}")
+        raise HTTPException(status_code=502, detail=f"Pollinations returned non-audio content ({ct}): {body}")
 
     with open(output_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=8192):
@@ -221,33 +197,25 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
     logger.info("Audio saved: %s (%d bytes)", output_path.name, saved)
     if saved < 512:
         raise HTTPException(status_code=502,
-            detail=f"Pollinations returned empty audio ({saved} bytes). "
-                   "Check your API key credit balance or try a shorter prompt.")
+            detail=f"Pollinations returned empty audio ({saved} bytes). Check API key credit balance.")
 
 
 def crop_to_portrait(clip):
-    """
-    Center-crop a video clip to 9:16 portrait aspect ratio.
-    """
     w, h = clip.size
     target_ratio = 9 / 16
     current_ratio = w / h
-
     if abs(current_ratio - target_ratio) < 0.01:
         return clip
-
     if current_ratio > target_ratio:
         new_w = int(h * 9 / 16)
         new_w = new_w if new_w % 2 == 0 else new_w - 1
-        x_center = w / 2
-        logger.info("Cropping portrait: %dx%d → %dx%d (center crop width)", w, h, new_w, h)
-        return clip.crop(x_center=x_center, width=new_w, height=h)
+        logger.info("Cropping portrait: %dx%d -> %dx%d (width)", w, h, new_w, h)
+        return clip.crop(x_center=w / 2, width=new_w, height=h)
     else:
         new_h = int(w * 16 / 9)
         new_h = new_h if new_h % 2 == 0 else new_h - 1
-        y_center = h / 2
-        logger.info("Cropping portrait: %dx%d → %dx%d (center crop height)", w, h, w, new_h)
-        return clip.crop(width=w, height=new_h, y_center=y_center)
+        logger.info("Cropping portrait: %dx%d -> %dx%d (height)", w, h, w, new_h)
+        return clip.crop(width=w, height=new_h, y_center=h / 2)
 
 
 def merge_video_audio(
@@ -257,12 +225,8 @@ def merge_video_audio(
     duration_mode: str = "auto",
     force_portrait: bool = True,
 ) -> None:
-    """
-    Strip audio from video, attach AI voice, then match durations.
-    """
     try:
         from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
-
         logger.info("Loading video: %s", video_path.name)
         video = VideoFileClip(str(video_path))
         video_no_audio = video.without_audio()
@@ -271,32 +235,28 @@ def merge_video_audio(
             original_size = video_no_audio.size
             video_no_audio = crop_to_portrait(video_no_audio)
             if video_no_audio.size != original_size:
-                logger.info("Portrait crop applied: %s → %s", original_size, video_no_audio.size)
+                logger.info("Portrait crop applied: %s -> %s", original_size, video_no_audio.size)
 
         audio = AudioFileClip(str(audio_path))
-
         vid_dur = round(video_no_audio.duration, 3)
         aud_dur = round(audio.duration, 3)
-        logger.info("Durations — video: %.2fs  audio: %.2fs  mode: %s", vid_dur, aud_dur, duration_mode)
+        logger.info("Durations - video: %.2fs  audio: %.2fs  mode: %s", vid_dur, aud_dur, duration_mode)
 
         if duration_mode == "trim_audio":
             if aud_dur > vid_dur:
                 audio = audio.subclip(0, vid_dur)
             final_video = video_no_audio.set_audio(audio)
-
         elif duration_mode == "loop_video" or (duration_mode == "auto" and aud_dur > vid_dur):
             loops_needed = int(aud_dur / vid_dur) + 1
             logger.info("Looping video x%d to cover %.2fs", loops_needed, aud_dur)
             looped_video = concatenate_videoclips([video_no_audio] * loops_needed)
             looped_video = looped_video.subclip(0, aud_dur)
             final_video = looped_video.set_audio(audio)
-
         else:
             logger.info("Trimming video to audio length (%.2fs)", aud_dur)
-            trimmed_video = video_no_audio.subclip(0, aud_dur)
-            final_video = trimmed_video.set_audio(audio)
+            final_video = video_no_audio.subclip(0, aud_dur).set_audio(audio)
 
-        logger.info("Rendering final video…")
+        logger.info("Rendering final video...")
         final_video.write_videofile(
             str(output_path),
             codec="libx264",
@@ -308,7 +268,6 @@ def merge_video_audio(
             preset="ultrafast"
         )
         logger.info("Render complete: %s", output_path.name)
-
         video.close()
         audio.close()
         final_video.close()
@@ -318,28 +277,26 @@ def merge_video_audio(
         raise RuntimeError(f"Video merge error: {e}") from e
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# ── Endpoint: Process Video ───────────────────────────────────────────────────
 @app.post("/api/process-video")
 def process_video(
-    prompt_text: str = Form(..., description="Teks hook untuk di-voiceover"),
-    voice_model: str = Form("nova", description="Voice preset: nova, shimmer, alloy, dst"),
-    video: UploadFile = File(..., description="Video sumber"),
-    duration_mode: str = Form("auto", description="auto | loop_video | trim_audio"),
-    log_id: str = Form(None, description="Opsional UUID log untuk melampirkan video ini"),
+    prompt_text: str = Form(...),
+    voice_model: str = Form("nova"),
+    video: UploadFile = File(...),
+    duration_mode: str = Form("auto"),
+    log_id: str = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    force_portrait: str = Form("true", description="Force output to 9:16 portrait aspect ratio (true/false)"),
+    force_portrait: str = Form("true"),
 ):
     suffix = Path(video.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Only .mp4 files are accepted. Got: '{suffix}'")
-
     if not prompt_text.strip():
         raise HTTPException(status_code=400, detail="prompt_text cannot be empty.")
 
     job_id = uuid.uuid4().hex
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
-
     raw_video_path = job_dir / f"raw_video{suffix}"
     voice_path = job_dir / "temp_voice.mp3"
     output_path = job_dir / "final_output.mp4"
@@ -352,12 +309,8 @@ def process_video(
             buffer.flush()
             os.fsync(buffer.fileno())
 
-        saved_size = raw_video_path.stat().st_size
-        if saved_size < 1024:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File video terlalu kecil ({saved_size} bytes). Pastikan file .mp4 valid dan tidak kosong.",
-            )
+        if raw_video_path.stat().st_size < 1024:
+            raise HTTPException(status_code=400, detail="File video terlalu kecil. Pastikan file .mp4 valid.")
 
         generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
@@ -367,11 +320,9 @@ def process_video(
 
         merge_video_audio(raw_video_path, voice_path, output_path, duration_mode, portrait)
 
-        final_video_path = output_path
         if log_id:
-            final_video_path = VIDEOS_DIR / f"{log_id}.mp4"
-            shutil.copy(output_path, final_video_path)
-            logger.info("Persisted video to static/videos for log_id: %s", log_id)
+            shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
+            logger.info("Persisted video for log_id: %s", log_id)
 
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
@@ -388,130 +339,236 @@ def process_video(
         raise
     except Exception as e:
         cleanup_files(job_dir)
-        logger.error("Unhandled exception in /api/process-video:\n%s", traceback.format_exc())
+        logger.error("Unhandled exception:\n%s", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Unexpected server error: {e}")
 
 
-# ── AI Hook Generator ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# AI HOOK GENERATOR
+# ══════════════════════════════════════════════════════════════════════════════
 TEXT_API_URL = POLLINATIONS_API_URL
 
-HOOK_SYSTEM_PROMPT = """Kamu adalah copywriter expert affiliate marketing Indonesia. 
-Tugasmu adalah menulis skrip voiceover untuk video affiliate TikTok/Shopee yang viral dan menarik.
+# ── Blacklist kata pembuka statis — dipakai di prompt & post-processing ───────
+_BANNED_OPENERS = (
+    "Duh", "Eh", "Wah", "Wih", "Aduh", "Astaga", "Wow",
+    "Guys", "Bestie", "Gaes", "Bro", "Sis",
+    "Jujur", "Jujur nih", "Jujur banget",
+    "Serius", "Serius deh", "Serius nih",
+    "Beneran", "Beneran deh", "No cap",
+    "Oke", "Oke jadi", "Oke guys",
+    "Nah", "Nah jadi", "Nah guys",
+    "Jadi", "Jadi gini", "Jadi begini",
+    "So", "So guys", "Btw",
+    "Hei", "Halo", "Hi",
+    "Pernah", "Pernah gak", "Pernah nggak", "Pernahkah",
+    "Tau gak", "Tau gak sih", "Tahu nggak",
+    "Percaya gak", "Percaya nggak",
+    "Kalian", "Kalian wajib", "Kalian harus",
+    "Stop", "Stop scrolling", "Berhenti",
+    "Lagi nyari", "Lagi cari",
+    "Capek sama", "Capek dengan",
+    "Ini dia", "Ini dia rahasianya",
+    "Gak disangka", "Nggak disangka",
+    "Sering gak sih", "Sering nggak sih",
+    "Aku mau", "Aku mau cerita", "Aku mau share",
+    "Mau cerita", "Mau share",
+    "Ternyata oh ternyata",
+)
+_BANNED_OPENERS_STR = ", ".join(f'"{w}"' for w in _BANNED_OPENERS)
+
+# ── FIX #1 #2 #3 #4: HOOK_SYSTEM_PROMPT ─────────────────────────────────────
+HOOK_SYSTEM_PROMPT = f"""Kamu adalah kreator konten TikTok dan Shopee yang sudah sering viral di niche produk rumah tangga dan parenting.
+Kamu bicara natural seperti orang biasa yang excited nemuin produk bagus — bukan copywriter yang nulis skrip iklan.
+
 Aturan penulisan:
 - Gunakan Bahasa Indonesia gaul yang natural dan relatable
-- Tulis angka dalam kata (misal: 'seratus ribu', bukan '100.000')
+- Tulis angka dalam kata (misal: seratus ribu, bukan 100.000)
 - Tambahkan jeda alami dengan koma dan titik
-- Tidak lebih dari 120 kata
+- Maksimal 5 kalimat — hook yang bagus singkat dan langsung menghantam
 - Jangan gunakan emoji, hashtag, atau tanda bintang
-- Langsung mulai skrip tanpa intro/penjelasan tambahan
-- Akhiri dengan call-to-action yang kuat"""
+- Bicara ke satu orang pakai kata "kamu" — bukan ke kerumunan pakai "kalian" atau "guys"
+- Langsung mulai tanpa basa-basi atau salam pembuka
+- Akhiri dengan kalimat yang mendorong rasa penasaran atau action
+- DILARANG KERAS memulai dengan kata-kata berikut karena terdengar bot: {_BANNED_OPENERS_STR}
+- DILARANG menggunakan "..." sebagai jeda artifisial lebih dari satu kali"""
 
+# ── FIX #5 #6 #7: HOOK_V2_SYSTEM_PROMPT ─────────────────────────────────────
+HOOK_V2_SYSTEM_PROMPT = f"""Kamu adalah kreator video yang sudah viral puluhan kali di TikTok.
+Kamu BUKAN copywriter kaku — kamu ORANG SUNGGUHAN yang bicara jujur dan natural.
+
+SIAPA KAMU
+Kamu bicara seperti teman yang baru nemuin sesuatu yang bikin kaget, atau pelanggan yang genuinely excited, atau orang yang mau berbagi pengalaman jujur. Nadamu hangat, santai, manusiawi — sama sekali tidak terasa iklan.
+
+ATURAN KERAS — WAJIB DIIKUTI
+- DILARANG memulai dengan kata-kata berikut karena terdengar bot: {_BANNED_OPENERS_STR}
+- DILARANG menggunakan pola kalimat template apapun
+- DILARANG menggunakan emoji atau tanda bintang
+- DILARANG menulis label seperti VISUAL:, TEKS:, FORMAT:, NARASI:, ANGLE:, atau simbol |
+- DILARANG bicara ke kerumunan — gunakan "kamu", bukan "kalian", "guys", "bestie", "gaes"
+- DILARANG menggunakan "..." sebagai jeda artifisial lebih dari satu kali
+- Output HANYA kalimat yang diucapkan — murni voiceover, tidak ada deskripsi teknis
+- Maksimal 5 kalimat — singkat, padat, langsung menghantam
+
+TUJUAN EMOSI (pilih satu sesuai instruksi):
+- PROBLEM: Audiens merasa "itu gue banget" dalam 2 detik pertama
+- PERSONAL: Audiens percaya karena kamu terasa seperti orang biasa yang sudah nyoba
+- EDUCATION: Audiens merasa dapat insight gratis yang berguna, bukan dijuali
+- CONTRA: Audiens terpancing karena kamu bilang sesuatu yang melawan asumsi mereka
+- VISUAL: Audiens berhenti scroll karena kalimat pertama terasa seperti sedang menyaksikan sesuatu yang mengejutkan
+
+TUGAS: Tulis SATU hook voiceover yang sangat natural berdasarkan produk di bawah."""
+
+# ── FIX #12: HOOK_STYLE_PROMPTS — perkuat shock & story ─────────────────────
 HOOK_STYLE_PROMPTS = {
     "tiktok": {
-        "viral":   "Buat hook viral impulsif dengan pembuka yang mengejutkan (bukan 'hei stop scrolling'), social proof dengan angka spesifik, dan FOMO yang kuat.",
-        "shock":   "Buat hook shock & reveal — mulai dari pengakuan jujur skeptis, twist mengejutkan saat mencoba, dan rasa penasaran yang mendorong klik.",
-        "story":   "Buat hook cerita personal — ceritakan penyesalan tidak menemukan produk ini lebih awal, perjalanan mencoba banyak produk gagal, lalu penemuan yang mengubah segalanya.",
-        "fomo":    "Buat hook FOMO urgency ekstrem — data stok menipis yang spesifik, keputusan mahal jika menunda, dan urgensi waktu nyata.",
+        "viral": (
+            "Buat hook viral impulsif. Pembukaan harus mengejutkan dan spesifik — "
+            "langsung sebut angka, fakta, atau situasi konkret tanpa basa-basi. "
+            "Sertakan social proof dengan angka nyata dan tutup dengan FOMO yang terasa mendesak."
+        ),
+        "shock": (
+            "Buat hook shock & reveal. Mulai dari titik di mana kamu sudah memegang produknya "
+            "dan baru sadar sesuatu yang mengejutkan — bukan dari awal cerita skeptis. "
+            "Twist harus spesifik tentang produk ini, bukan kesan umum. "
+            "JANGAN mulai dengan kata yang mengindikasikan kejujuran seperti jujur, serius, beneran."
+        ),
+        "story": (
+            "Buat hook cerita personal. Mulai dari momen spesifik yang terjadi — "
+            "bukan dari penyesalan atau pertanyaan ke audiens. Ceritakan satu kejadian nyata yang "
+            "melibatkan produk ini dan berujung pada penemuan yang mengubah kebiasaan. "
+            "JANGAN mulai dengan pernah, dulu, atau pertanyaan ke audiens."
+        ),
+        "fomo": (
+            "Buat hook FOMO urgency. Langsung sebut angka stok atau waktu yang spesifik "
+            "di kalimat pertama. Hitung kerugian dalam rupiah jika menunda. "
+            "Tutup dengan satu kalimat urgency yang terasa real, bukan dibuat-buat."
+        ),
     },
     "shopee": {
-        "flash":   "Buat hook flash sale Shopee — angka diskon yang mengejutkan, bukti laku keras (angka pcs terjual), dan kombinasi voucher yang bikin deal makin gila.",
-        "review":  "Buat hook review jujur Shopee — ekspektasi rendah di awal, detail unboxing yang memuaskan, dan rekomendasi organik ke orang terdekat.",
-        "bundle":  "Buat hook bundle deal — kalkulasi hemat dalam rupiah yang konkret, bonus item yang mengejutkan, dan eksklusivitas promo.",
-        "premium": "Buat hook premium value — kontras kualitas vs harga yang tidak masuk akal, bukti keaslian produk, dan akses yang biasanya hanya untuk kalangan tertentu.",
+        "flash": (
+            "Buat hook flash sale Shopee. Buka dengan angka diskon atau harga final yang "
+            "mengejutkan — langsung ke angka, tanpa intro. Sertakan bukti laku keras "
+            "dengan angka pcs terjual dan kombinasi voucher konkret."
+        ),
+        "review": (
+            "Buat hook review jujur Shopee. Mulai dari detail spesifik saat unboxing "
+            "atau pertama kali pakai — bukan dari ekspektasi awal. "
+            "Akhiri dengan rekomendasi yang terasa organik ke satu orang, bukan ke semua orang. "
+            "JANGAN mulai dengan kata yang mengindikasikan kejujuran seperti jujur, serius, beneran."
+        ),
+        "bundle": (
+            "Buat hook bundle deal. Buka dengan kalkulasi hemat dalam rupiah yang konkret "
+            "di kalimat pertama. Sebutkan bonus item yang paling mengejutkan dan "
+            "tutup dengan eksklusivitas promo yang terasa terbatas."
+        ),
+        "premium": (
+            "Buat hook premium value. Mulai dengan kontras harga vs kualitas yang "
+            "terasa tidak masuk akal — langsung ke angka. Sertakan satu detail "
+            "spesifik yang membuktikan keaslian atau kualitas produk."
+        ),
     },
 }
 
-HOOK_V2_SYSTEM_PROMPT = """Kamu adalah Kreator Video yang sudah viral puluhan kali.
-Kamu BUKAN copywriter kaku yang menulis template iklan — kamu adalah ORANG SUNGGUHAN yang bicara natural.
+# ── FIX #8 #9: v2_map — hapus notasi panah, perkaya education ────────────────
+_V2_MAP = {
+    "v2_problem": (
+        "Angle: PROBLEM-BASED. "
+        "Sentuh satu masalah sangat spesifik yang dirasakan orang tua saat memilih atau membeli mainan — "
+        "bukan masalah umum. Audiens harus merasa 'itu gue banget' tanpa kamu menyebut solusinya. "
+        "Akhiri dengan kalimat yang menggantung — buat mereka penasaran."
+    ),
+    "v2_personal": (
+        "Angle: PERSONAL EXPERIENCE. "
+        "Mulai dari momen spesifik setelah memakai produk — bukan dari awal cerita skeptis atau ragu. "
+        "Ceritakan reaksi atau kejadian konkret yang terjadi, lalu biarkan fakta itu bicara sendiri. "
+        "Harus terasa seperti orang biasa yang cerita ke satu teman, bukan ke kamera."
+    ),
+    "v2_education": (
+        "Angle: EDUCATION. "
+        "Berikan satu fakta atau sudut pandang yang belum banyak orang tau tentang produk ini, "
+        "cara memilih mainan yang benar, atau dampaknya pada tumbuh kembang anak. "
+        "Bisa mulai dengan angka, pernyataan berani, atau fakta yang bikin orang berhenti sejenak. "
+        "Audiens harus merasa dapat ilmu gratis, bukan sedang ditonton iklan."
+    ),
+    "v2_contra": (
+        "Angle: CONTRA OPINION. "
+        "Lawan satu asumsi umum yang banyak dipercaya orang tua soal mainan atau produk ini — "
+        "dengan jujur dan ada logikanya, bukan sensasional. "
+        "Harus terasa berani tapi masuk akal. Akhiri dengan fakta atau bukti yang mendukung pendapatmu."
+    ),
+    "v2_visual": (
+        "Angle: VISUAL SHOCK. "
+        "Tulis HANYA kalimat voiceover yang diucapkan saat adegan mengejutkan terjadi — "
+        "kata-kata yang keluar dari mulut, bukan deskripsi adegan. "
+        "Kalimat pertama harus terasa seperti kamu sedang menyaksikan sesuatu yang tidak terduga "
+        "dan spontan bereaksi. "
+        "DILARANG KERAS menulis VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output."
+    ),
+}
 
-## SIAPA KAMU
-Kamu bicara seperti: Customer yang excited nemuin produk bagus, atau orang yang iseng review barang barunya, atau teman yang kasih rekomendasi jujur. 
-Nadamu santai, hangat, manusiawi, dan sama sekali TIDAK terasa seperti "iklan".
 
-## ATURAN EMAS (DILARANG KERAS)
-- DILARANG menggunakan kata pembuka template bot seperti: "Lagi nyari...", "Capek sama...", "Ini dia rahasianya...", "Gak disangka!", "Kalian wajib tau!", "Sering gak sih...". 
-- DILARANG menggunakan pola kalimat yang sama berulang. Setiap hook harus terasa ditulis ulang dari nol.
-- DILARANG menggunakan emoji atau tanda bintang.
-- DILARANG menulis label apapun seperti VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output.
-- Output hanya berupa kalimat yang diucapkan — murni voiceover, tidak ada deskripsi teknis.
-- Gunakan Bahasa Indonesia sehari-hari/gaul yang luwes (bisa campur dikit istilah tren yang pas).
-
-## JIWA HOOK (Tujuan Emosi) :
-1. PROBLEM: Sentuh masalah nyata yang relatable buat audiens produk ini.
-2. PERSONAL: Ceritakan kejutan/pengalaman jujur saat mencoba produk (Skeptis -> Terkejut).
-3. EDUCATION: Kasih insight/fakta baru yang bikin orang bilang "oh gitu ya?".
-4. CONTRA: Lawan asumsi umum (misal: "barang murah biasanya jelek, tapi...").
-5. VISUAL: Tulis kalimat voiceover yang diucapkan saat adegan mengejutkan — kata-kata yang keluar dari mulut, bukan deskripsi scene.
-
-TUGAS: Tulis SATU skrip hook yang sangat natural berdasarkan produk di bawah."""
-
-
-# ── FIX: Cleaner untuk v2_visual — safety net jika model masih pakai label ──
-def _clean_visual_hook(text: str) -> str:
+# ── FIX #11: Global cleaner — opener statis & label visual ───────────────────
+def _clean_hook_output(text: str, variation: str) -> str:
     """
-    Hapus label VISUAL:/TEKS: jika model masih menyertakannya.
-    Ekstrak hanya bagian TEKS: sebagai voiceover, atau bersihkan semua label.
+    1. Untuk v2_visual: ekstrak bagian TEKS: jika model masih pakai label
+    2. Untuk semua variasi: strip opener statis jika masih lolos blacklist
     """
-    # Jika ada format VISUAL: ... | TEKS: ..., ambil semua bagian TEKS saja
-    teks_parts = re.findall(r'TEKS:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
-    if teks_parts:
-        cleaned = " ".join(t.strip() for t in teks_parts)
-        logger.info("v2_visual: extracted %d TEKS: part(s) from labeled output", len(teks_parts))
-        return cleaned
+    # Khusus v2_visual
+    if variation == "v2_visual":
+        teks_parts = re.findall(r'TEKS:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
+        if teks_parts:
+            text = " ".join(t.strip() for t in teks_parts)
+            logger.info("v2_visual: extracted %d TEKS: part(s)", len(teks_parts))
+        else:
+            text = re.sub(r'(VISUAL|TEKS|FORMAT|NARASI|ANGLE)\s*:\s*', '', text, flags=re.IGNORECASE)
+            text = text.replace('|', ' ').strip()
+            text = re.sub(r'\s{2,}', ' ', text)
 
-    # Fallback: hapus semua label dan simbol |
-    cleaned = re.sub(r'(VISUAL|TEKS|FORMAT|NARASI)\s*:\s*', '', text, flags=re.IGNORECASE)
-    cleaned = cleaned.replace('|', ' ').strip()
-    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
-    return cleaned
+    # Semua variasi: bersihkan opener statis
+    banned_pattern = '|'.join(re.escape(w) for w in _BANNED_OPENERS)
+    cleaned = re.sub(rf'^({banned_pattern})[,!\s]+', '', text, flags=re.IGNORECASE)
+    if cleaned != text:
+        logger.info("Opener statis dibersihkan: '%s...' -> '%s...'", text[:30], cleaned[:30])
+        text = cleaned[0].upper() + cleaned[1:] if cleaned else text
+
+    return text.strip()
 
 
+# ── Endpoint: Generate Hook ───────────────────────────────────────────────────
 @app.post("/api/generate-hook")
 def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
     hook_type: str    = Form("tiktok", description="Platform: tiktok atau shopee"),
     variation: str    = Form("viral",  description="Variasi hook style"),
 ):
-    """
-    Generate an AI-powered affiliate hook script using Pollinations text API
-    with gemini-fast model. No video processing — returns JSON with the script.
-    """
     if not product_name.strip():
         raise HTTPException(status_code=400, detail="product_name tidak boleh kosong.")
 
     hook_type = hook_type.lower().strip()
     variation = variation.lower().strip()
 
-    styles = HOOK_STYLE_PROMPTS.get(hook_type, HOOK_STYLE_PROMPTS["tiktok"])
-    style_instruction = styles.get(variation, list(styles.values())[0])
-    
-    current_system_prompt = HOOK_SYSTEM_PROMPT
-
-    # ── FIX: v2_map tanpa format kaku, v2_visual dilarang tulis label ──
-    v2_map = {
-        "v2_problem":   "Angle: PROBLEM-BASED. Sentuh masalah nyata yang membuat audiens merasa 'itu gue banget'. Jangan sebut solusi dulu.",
-        "v2_personal":  "Angle: PERSONAL EXPERIENCE. Ceritakan kejutan jujur (awal skeptis -> kaget). Harus terasa seperti cerita orang biasa.",
-        "v2_education": "Angle: EDUCATION. Berikan insight/fakta unik yang bikin orang tua/audiens bilang 'oh iya ya?'.",
-        "v2_contra":    "Angle: CONTRA OPINION. Berani lawan asumsi umum (misal: 'mainan mahal belum tentu bagus') dengan jujur.",
-        "v2_visual":    "Angle: VISUAL SHOCK. Tulis HANYA kalimat voiceover yang diucapkan saat adegan mengejutkan — kata-kata yang keluar dari mulut, bukan deskripsi adegan atau label apapun. DILARANG KERAS menulis kata VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output.",
-    }
-
-    if variation in v2_map:
+    if variation in _V2_MAP:
         current_system_prompt = HOOK_V2_SYSTEM_PROMPT
-        style_instruction = v2_map[variation]
+        style_instruction = _V2_MAP[variation]
+    else:
+        current_system_prompt = HOOK_SYSTEM_PROMPT
+        styles = HOOK_STYLE_PROMPTS.get(hook_type, HOOK_STYLE_PROMPTS["tiktok"])
+        style_instruction = styles.get(variation, list(styles.values())[0])
 
     platform_label = "TikTok" if hook_type == "tiktok" else "Shopee"
+
+    # ── FIX #10: user_prompt — ganti trigger kata ─────────────────────────────
     user_prompt = (
         f"Produk: {product_name}\n"
         f"Platform: {platform_label}\n"
-        f"Instruksi gaya: {style_instruction}\n\n"
-        f"Tulis skrip voiceover affiliatenya sekarang:"
+        f"Instruksi: {style_instruction}\n\n"
+        f"Tulis hooknya sekarang, langsung mulai tanpa penjelasan:"
     )
 
-    # ── FIX: temperature dinamis — v2 lebih tinggi agar lebih natural ──
+    # ── FIX #3: temperature dinamis ──────────────────────────────────────────
     temperature = 1.1 if variation.startswith("v2_") else 0.85
 
-    logger.info("Generating hook via Pollinations text API | product=%s platform=%s variation=%s temp=%.2f",
+    logger.info("Generating hook | product=%s platform=%s variation=%s temp=%.2f",
                 product_name, hook_type, variation, temperature)
 
     try:
@@ -537,12 +594,10 @@ def generate_hook(
         data = response.json()
         script = data["choices"][0]["message"]["content"].strip()
 
-        # ── FIX: bersihkan output v2_visual jika model masih pakai label ──
-        if variation == "v2_visual":
-            script = _clean_visual_hook(script)
+        # ── FIX #11: bersihkan output ─────────────────────────────────────────
+        script = _clean_hook_output(script, variation)
 
         logger.info("Hook generated: %d chars", len(script))
-
         log_id = append_hook_log(hook_type, variation, product_name, script)
 
         return {
@@ -551,7 +606,7 @@ def generate_hook(
             "platform": hook_type,
             "variation": variation,
             "log_id": log_id,
-            "is_visual_only": variation == "v2_visual",  # ── FIX: flag untuk frontend
+            "is_visual_only": variation == "v2_visual",
         }
 
     except requests.exceptions.Timeout:
@@ -559,41 +614,33 @@ def generate_hook(
     except requests.exceptions.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Error calling Pollinations text API: {exc}")
     except (KeyError, IndexError) as exc:
-        logger.error("Unexpected text API response structure: %s", traceback.format_exc())
+        logger.error("Unexpected API response structure: %s", traceback.format_exc())
         raise HTTPException(status_code=502, detail=f"Unexpected API response format: {exc}")
 
 
+# ── Endpoint: Generate Audio Only ─────────────────────────────────────────────
 @app.post("/api/generate-audio")
 def generate_audio_only(
     background_tasks: BackgroundTasks,
-    prompt_text: str = Form(..., description="The script text"),
-    voice_model: str = Form("whisper", description="Voice model"),
-    log_id: str      = Form(None, description="Optional log ID to link with"),
+    prompt_text: str = Form(...),
+    voice_model: str = Form("whisper"),
+    log_id: str      = Form(None),
 ):
-    """
-    Generate only the audio MP3 from text script.
-    """
     job_id = str(uuid.uuid4())
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(exist_ok=True)
-
     try:
         voice_path = job_dir / "voice.mp3"
         generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         target_id = log_id if log_id else job_id
-        final_audio_path = AUDIOS_DIR / f"{target_id}.mp3"
-        shutil.copy(voice_path, final_audio_path)
-        logger.info("Persisted audio to static/audios for id: %s", target_id)
+        shutil.copy(voice_path, AUDIOS_DIR / f"{target_id}.mp3")
+        logger.info("Persisted audio for id: %s", target_id)
 
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
-        return {
-            "status": "success",
-            "audio_url": f"/api/audios/{target_id}.mp3",
-            "log_id": target_id
-        }
+        return {"status": "success", "audio_url": f"/api/audios/{target_id}.mp3", "log_id": target_id}
 
     except HTTPException:
         cleanup_files(job_dir)
@@ -607,7 +654,6 @@ def generate_audio_only(
 # ── Log Viewer Endpoints ───────────────────────────────────────────────────────
 @app.get("/api/logs")
 def get_logs():
-    """Return all hook generation logs as JSON array with dynamic video mapping."""
     _ensure_log_header()
     rows = []
     try:
@@ -628,20 +674,14 @@ def get_logs():
 
 @app.get("/api/logs/download")
 def download_logs():
-    """Download hook_logs.csv file."""
     _ensure_log_header()
     if not LOG_FILE.exists():
         raise HTTPException(status_code=404, detail="Log file not found.")
-    return FileResponse(
-        path=str(LOG_FILE),
-        media_type="text/csv",
-        filename="hook_logs.csv",
-    )
+    return FileResponse(path=str(LOG_FILE), media_type="text/csv", filename="hook_logs.csv")
 
 
 @app.delete("/api/logs/clear")
 def clear_logs():
-    """Reset log file (keep header only)."""
     with LOG_LOCK:
         with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(LOG_HEADER)
@@ -649,7 +689,7 @@ def clear_logs():
     return {"status": "ok", "message": "Log file has been cleared."}
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Health Check ──────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
     return {
@@ -660,10 +700,9 @@ def health():
     }
 
 
-# ── Debug / connectivity test ─────────────────────────────────────────────────
+# ── Debug ─────────────────────────────────────────────────────────────────────
 @app.get("/api/debug")
 def debug():
-    """Quick connectivity test — call this to diagnose 500 errors without uploading a file."""
     import sys
     result = {
         "python_version": sys.version,
@@ -676,7 +715,6 @@ def debug():
         "pollinations_reachable": False,
         "pollinations_error": None,
     }
-
     try:
         from moviepy.editor import VideoFileClip  # noqa: F401
         result["moviepy_available"] = True
@@ -685,7 +723,6 @@ def debug():
         result["ffmpeg_available"] = out.returncode == 0
     except Exception as e:
         result["moviepy_error"] = str(e)
-
     try:
         resp = requests.head(
             f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech",
@@ -696,5 +733,4 @@ def debug():
         result["pollinations_status"] = resp.status_code
     except Exception as e:
         result["pollinations_error"] = str(e)
-
     return result
