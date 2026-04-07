@@ -6,6 +6,7 @@ import asyncio
 import logging
 import traceback
 import threading
+import re
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -65,10 +66,9 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
     log_id = str(uuid.uuid4())
     try:
         with LOG_LOCK:
-            # count existing rows to get the next sequential number
             try:
                 with open(LOG_FILE, "r", encoding="utf-8") as f:
-                    row_count = sum(1 for _ in csv.reader(f)) - 1  # subtract header
+                    row_count = sum(1 for _ in csv.reader(f)) - 1
             except Exception:
                 row_count = 0
 
@@ -87,11 +87,11 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
     except Exception as e:
         logger.error("Failed to append hook log (possibly file locked): %s", e)
     return log_id
+
     
 def clean_old_videos():
     """Delete videos older than 7 days to conserve disk space."""
     now = time.time()
-    # Clean videos
     for f in VIDEOS_DIR.glob("*.mp4"):
         try:
             if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
@@ -100,7 +100,6 @@ def clean_old_videos():
         except Exception as e:
             logger.error("Error deleting old video %s: %s", f, e)
             
-    # Clean audios
     for f in AUDIOS_DIR.glob("*.mp3"):
         try:
             if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
@@ -168,7 +167,6 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
     try:
         if voice.lower() == "whisper":
             import urllib.parse
-            # Replace slashes and newlines which can cause 404s in Nginx URIs
             safe_prompt = prompt.replace("/", " ").replace("\n", " ")
             encoded_prompt = urllib.parse.quote(safe_prompt)
             endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/audio/{encoded_prompt}?model={voice}"
@@ -208,14 +206,12 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
         raise HTTPException(status_code=502,
             detail=f"Pollinations returned HTTP {response.status_code}: {preview}")
 
-    # Block obviously wrong responses (HTML/JSON error pages)
     if any(t in ct for t in ("text/html", "text/plain", "application/json")):
         body = response.text[:500]
         logger.error("Pollinations returned non-audio body: %s", body)
         raise HTTPException(status_code=502,
             detail=f"Pollinations returned non-audio content ({ct}): {body}")
 
-    # Stream save
     with open(output_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
@@ -232,27 +228,21 @@ def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path)
 def crop_to_portrait(clip):
     """
     Center-crop a video clip to 9:16 portrait aspect ratio.
-    - Landscape (16:9) → crop left/right, keep center column
-    - Already portrait but wrong ratio → crop top/bottom
-    - Already 9:16 → no change
     """
     w, h = clip.size
-    target_ratio = 9 / 16  # 0.5625
+    target_ratio = 9 / 16
     current_ratio = w / h
 
     if abs(current_ratio - target_ratio) < 0.01:
-        return clip  # already 9:16, skip
+        return clip
 
     if current_ratio > target_ratio:
-        # Too wide → crop width (keep full height)
         new_w = int(h * 9 / 16)
-        # Ensure even number (required by libx264)
         new_w = new_w if new_w % 2 == 0 else new_w - 1
         x_center = w / 2
         logger.info("Cropping portrait: %dx%d → %dx%d (center crop width)", w, h, new_w, h)
         return clip.crop(x_center=x_center, width=new_w, height=h)
     else:
-        # Too tall → crop height (keep full width, center)
         new_h = int(w * 16 / 9)
         new_h = new_h if new_h % 2 == 0 else new_h - 1
         y_center = h / 2
@@ -269,11 +259,6 @@ def merge_video_audio(
 ) -> None:
     """
     Strip audio from video, attach AI voice, then match durations.
-
-    duration_mode:
-      'auto'       – smart: if audio > video → loop video; if video > audio → trim video.
-      'loop_video' – always loop video to fill audio length (audio drives duration).
-      'trim_audio' – old behavior: trim audio to video length (video drives duration).
     """
     try:
         from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
@@ -282,7 +267,6 @@ def merge_video_audio(
         video = VideoFileClip(str(video_path))
         video_no_audio = video.without_audio()
 
-        # ── Force 9:16 portrait aspect ratio ─────────────────────────────────
         if force_portrait:
             original_size = video_no_audio.size
             video_no_audio = crop_to_portrait(video_no_audio)
@@ -340,18 +324,11 @@ def process_video(
     prompt_text: str = Form(..., description="Teks hook untuk di-voiceover"),
     voice_model: str = Form("nova", description="Voice preset: nova, shimmer, alloy, dst"),
     video: UploadFile = File(..., description="Video sumber"),
-    duration_mode: str = Form(
-        "auto",
-        description="auto | loop_video | trim_audio",
-    ),
+    duration_mode: str = Form("auto", description="auto | loop_video | trim_audio"),
     log_id: str = Form(None, description="Opsional UUID log untuk melampirkan video ini"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    force_portrait: str = Form(
-        "true",
-        description="Force output to 9:16 portrait aspect ratio (true/false)",
-    ),
+    force_portrait: str = Form("true", description="Force output to 9:16 portrait aspect ratio (true/false)"),
 ):
-    # ── Validate file type ────────────────────────────────────────────────────
     suffix = Path(video.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Only .mp4 files are accepted. Got: '{suffix}'")
@@ -359,7 +336,6 @@ def process_video(
     if not prompt_text.strip():
         raise HTTPException(status_code=400, detail="prompt_text cannot be empty.")
 
-    # ── Per-request working directory ─────────────────────────────────────────
     job_id = uuid.uuid4().hex
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -369,15 +345,13 @@ def process_video(
     output_path = job_dir / "final_output.mp4"
 
     try:
-        # a) Save uploaded video — seek to 0 first to avoid "moov atom not found"
         video.file.seek(0)
         with open(raw_video_path, "wb") as buffer:
-            while chunk := video.file.read(1024 * 1024):  # read 1 MB at a time
+            while chunk := video.file.read(1024 * 1024):
                 buffer.write(chunk)
             buffer.flush()
             os.fsync(buffer.fileno())
 
-        # Validate the saved file is a real, non-empty MP4
         saved_size = raw_video_path.stat().st_size
         if saved_size < 1024:
             raise HTTPException(
@@ -385,17 +359,14 @@ def process_video(
                 detail=f"File video terlalu kecil ({saved_size} bytes). Pastikan file .mp4 valid dan tidak kosong.",
             )
 
-        # b) Generate AI voiceover
         generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         if duration_mode not in ("auto", "loop_video", "trim_audio"):
             duration_mode = "auto"
         portrait = force_portrait.lower() not in ("false", "0", "no")
 
-        # c + d + e) Merge video & audio (synchronous call directly inside thread pool)
         merge_video_audio(raw_video_path, voice_path, output_path, duration_mode, portrait)
 
-        # g) Schedule cleanup and persistence
         final_video_path = output_path
         if log_id:
             final_video_path = VIDEOS_DIR / f"{log_id}.mp4"
@@ -405,7 +376,6 @@ def process_video(
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
-        # f) Return Success Info
         return {
             "status": "success",
             "video_url": f"/api/videos/{log_id}.mp4" if log_id else None,
@@ -422,10 +392,8 @@ def process_video(
         raise HTTPException(status_code=500, detail=f"Unexpected server error: {e}")
 
 
-
 # ── AI Hook Generator ─────────────────────────────────────────────────────────
-# Text API uses the same gen.pollinations.ai base URL as the audio API
-TEXT_API_URL = POLLINATIONS_API_URL  # https://gen.pollinations.ai
+TEXT_API_URL = POLLINATIONS_API_URL
 
 HOOK_SYSTEM_PROMPT = """Kamu adalah copywriter expert affiliate marketing Indonesia. 
 Tugasmu adalah menulis skrip voiceover untuk video affiliate TikTok/Shopee yang viral dan menarik.
@@ -464,6 +432,8 @@ Nadamu santai, hangat, manusiawi, dan sama sekali TIDAK terasa seperti "iklan".
 - DILARANG menggunakan kata pembuka template bot seperti: "Lagi nyari...", "Capek sama...", "Ini dia rahasianya...", "Gak disangka!", "Kalian wajib tau!", "Sering gak sih...". 
 - DILARANG menggunakan pola kalimat yang sama berulang. Setiap hook harus terasa ditulis ulang dari nol.
 - DILARANG menggunakan emoji atau tanda bintang.
+- DILARANG menulis label apapun seperti VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output.
+- Output hanya berupa kalimat yang diucapkan — murni voiceover, tidak ada deskripsi teknis.
 - Gunakan Bahasa Indonesia sehari-hari/gaul yang luwes (bisa campur dikit istilah tren yang pas).
 
 ## JIWA HOOK (Tujuan Emosi) :
@@ -471,8 +441,30 @@ Nadamu santai, hangat, manusiawi, dan sama sekali TIDAK terasa seperti "iklan".
 2. PERSONAL: Ceritakan kejutan/pengalaman jujur saat mencoba produk (Skeptis -> Terkejut).
 3. EDUCATION: Kasih insight/fakta baru yang bikin orang bilang "oh gitu ya?".
 4. CONTRA: Lawan asumsi umum (misal: "barang murah biasanya jelek, tapi...").
+5. VISUAL: Tulis kalimat voiceover yang diucapkan saat adegan mengejutkan — kata-kata yang keluar dari mulut, bukan deskripsi scene.
 
 TUGAS: Tulis SATU skrip hook yang sangat natural berdasarkan produk di bawah."""
+
+
+# ── FIX: Cleaner untuk v2_visual — safety net jika model masih pakai label ──
+def _clean_visual_hook(text: str) -> str:
+    """
+    Hapus label VISUAL:/TEKS: jika model masih menyertakannya.
+    Ekstrak hanya bagian TEKS: sebagai voiceover, atau bersihkan semua label.
+    """
+    # Jika ada format VISUAL: ... | TEKS: ..., ambil semua bagian TEKS saja
+    teks_parts = re.findall(r'TEKS:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
+    if teks_parts:
+        cleaned = " ".join(t.strip() for t in teks_parts)
+        logger.info("v2_visual: extracted %d TEKS: part(s) from labeled output", len(teks_parts))
+        return cleaned
+
+    # Fallback: hapus semua label dan simbol |
+    cleaned = re.sub(r'(VISUAL|TEKS|FORMAT|NARASI)\s*:\s*', '', text, flags=re.IGNORECASE)
+    cleaned = cleaned.replace('|', ' ').strip()
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    return cleaned
+
 
 @app.post("/api/generate-hook")
 def generate_hook(
@@ -482,7 +474,7 @@ def generate_hook(
 ):
     """
     Generate an AI-powered affiliate hook script using Pollinations text API
-    with gemini-flash model. No video processing — returns JSON with the script.
+    with gemini-fast model. No video processing — returns JSON with the script.
     """
     if not product_name.strip():
         raise HTTPException(status_code=400, detail="product_name tidak boleh kosong.")
@@ -494,14 +486,14 @@ def generate_hook(
     style_instruction = styles.get(variation, list(styles.values())[0])
     
     current_system_prompt = HOOK_SYSTEM_PROMPT
-    
-    # Hook V2 Category Handling
+
+    # ── FIX: v2_map tanpa format kaku, v2_visual dilarang tulis label ──
     v2_map = {
         "v2_problem":   "Angle: PROBLEM-BASED. Sentuh masalah nyata yang membuat audiens merasa 'itu gue banget'. Jangan sebut solusi dulu.",
         "v2_personal":  "Angle: PERSONAL EXPERIENCE. Ceritakan kejutan jujur (awal skeptis -> kaget). Harus terasa seperti cerita orang biasa.",
         "v2_education": "Angle: EDUCATION. Berikan insight/fakta unik yang bikin orang tua/audiens bilang 'oh iya ya?'.",
         "v2_contra":    "Angle: CONTRA OPINION. Berani lawan asumsi umum (misal: 'mainan mahal belum tentu bagus') dengan jujur.",
-        "v2_visual":    "Angle: VISUAL SHOCK. Tulis deskripsi adegan visual + Teks Overlay. Format: VISUAL: [adegan] | TEKS: [overlay]."
+        "v2_visual":    "Angle: VISUAL SHOCK. Tulis HANYA kalimat voiceover yang diucapkan saat adegan mengejutkan — kata-kata yang keluar dari mulut, bukan deskripsi adegan atau label apapun. DILARANG KERAS menulis kata VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output.",
     }
 
     if variation in v2_map:
@@ -516,8 +508,11 @@ def generate_hook(
         f"Tulis skrip voiceover affiliatenya sekarang:"
     )
 
-    logger.info("Generating hook via Pollinations text API | product=%s platform=%s variation=%s",
-                product_name, hook_type, variation)
+    # ── FIX: temperature dinamis — v2 lebih tinggi agar lebih natural ──
+    temperature = 1.1 if variation.startswith("v2_") else 0.85
+
+    logger.info("Generating hook via Pollinations text API | product=%s platform=%s variation=%s temp=%.2f",
+                product_name, hook_type, variation, temperature)
 
     try:
         response = requests.post(
@@ -532,7 +527,7 @@ def generate_hook(
                     {"role": "system", "content": current_system_prompt},
                     {"role": "user",   "content": user_prompt},
                 ],
-                "temperature": 0.85,
+                "temperature": temperature,
                 "max_tokens": 300,
                 "private": True,
             },
@@ -540,14 +535,24 @@ def generate_hook(
         )
         response.raise_for_status()
         data = response.json()
-        # Extract text from OpenAI-compatible response
         script = data["choices"][0]["message"]["content"].strip()
+
+        # ── FIX: bersihkan output v2_visual jika model masih pakai label ──
+        if variation == "v2_visual":
+            script = _clean_visual_hook(script)
+
         logger.info("Hook generated: %d chars", len(script))
 
-        # ── Write to CSV log ──────────────────────────────────────────
         log_id = append_hook_log(hook_type, variation, product_name, script)
 
-        return {"script": script, "product": product_name, "platform": hook_type, "variation": variation, "log_id": log_id}
+        return {
+            "script": script,
+            "product": product_name,
+            "platform": hook_type,
+            "variation": variation,
+            "log_id": log_id,
+            "is_visual_only": variation == "v2_visual",  # ── FIX: flag untuk frontend
+        }
 
     except requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="Pollinations text API timeout. Coba lagi.")
@@ -573,21 +578,17 @@ def generate_audio_only(
     job_dir.mkdir(exist_ok=True)
 
     try:
-        # a) Generate Voice
         voice_path = job_dir / "voice.mp3"
         generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
-        # b) Persist to static folder
         target_id = log_id if log_id else job_id
         final_audio_path = AUDIOS_DIR / f"{target_id}.mp3"
         shutil.copy(voice_path, final_audio_path)
         logger.info("Persisted audio to static/audios for id: %s", target_id)
 
-        # c) Schedule cleanup
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
-        # d) Return JSON Meta
         return {
             "status": "success",
             "audio_url": f"/api/audios/{target_id}.mp3",
@@ -613,7 +614,6 @@ def get_logs():
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Add video URL statelessly if the file currently exists
                 log_id = row.get("log_id")
                 if log_id:
                     if (VIDEOS_DIR / f"{log_id}.mp4").exists():
@@ -677,7 +677,6 @@ def debug():
         "pollinations_error": None,
     }
 
-    # Check MoviePy / FFmpeg
     try:
         from moviepy.editor import VideoFileClip  # noqa: F401
         result["moviepy_available"] = True
@@ -687,7 +686,6 @@ def debug():
     except Exception as e:
         result["moviepy_error"] = str(e)
 
-    # Ping Pollinations API (HEAD request, no credits used)
     try:
         resp = requests.head(
             f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech",
