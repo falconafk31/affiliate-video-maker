@@ -520,7 +520,7 @@ _V2_MAP = {
         "(3) hadirkan produk sebagai solusi secara natural tanpa terasa jualan, "
         "(4) tunjukkan satu bukti konkret bahwa produk ini benar-benar menyelesaikan masalah tadi, "
         "(5) tutup dengan CTA yang mendorong action tanpa terkesan memaksa. "
-        "Target panjang: 8 sampai 10 kalimat agar audio minimal 20 detik."
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik."
     ),
     "v2_personal": (
         "Angle: PERSONAL EXPERIENCE — tulis NARASI VOICEOVER PENUH, bukan sekadar hook pendek. "
@@ -530,7 +530,7 @@ _V2_MAP = {
         "(3) hubungkan ke situasi sebelum pakai produk ini — kontrasnya harus terasa nyata, "
         "(4) perkuat dengan satu detail spesifik yang membuat pengalaman ini credible, "
         "(5) tutup dengan rekomendasi yang terasa natural seperti cerita ke teman, bukan ke kamera. "
-        "Target panjang: 8 sampai 10 kalimat agar audio minimal 20 detik."
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik."
     ),
     "v2_education": (
         "Angle: EDUCATION — tulis NARASI VOICEOVER PENUH, bukan sekadar hook pendek. "
@@ -538,7 +538,7 @@ _V2_MAP = {
         "(2) jelaskan kenapa ini penting atau relevan untuk produk ini, "
         "(3) hubungkan ke pengalaman nyata yang relatable, "
         "(4) tutup dengan CTA yang mendorong rasa ingin tau atau action. "
-        "Target panjang: 8 sampai 10 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
         "Audiens harus merasa dapat ilmu gratis, bukan sedang ditonton iklan. "
         "DILARANG menggunakan simbol persen — tulis dalam kata."
     ),
@@ -550,7 +550,7 @@ _V2_MAP = {
         "(3) sajikan argumen balik dengan logika yang kuat dan fakta konkret, "
         "(4) perkuat dengan satu bukti nyata atau pengalaman yang mendukung pendapatmu, "
         "(5) tutup dengan CTA yang mengajak audiens untuk buktikan sendiri. "
-        "Target panjang: 8 sampai 10 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
         "Harus terasa berani tapi masuk akal — bukan sensasional."
     ),
     "v2_visual": (
@@ -559,7 +559,7 @@ _V2_MAP = {
         "(2) lanjutkan dengan voiceover yang menggambarkan apa yang terjadi seolah kamu sedang melihatnya, "
         "(3) sampaikan fakta atau keunggulan produk yang terungkap dari adegan itu, "
         "(4) tutup dengan CTA singkat yang natural. "
-        "Target panjang: 8 sampai 10 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
         "DILARANG menulis VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output. "
         "Output HANYA kata-kata yang diucapkan — bukan deskripsi teknis atau stage direction."
     ),
