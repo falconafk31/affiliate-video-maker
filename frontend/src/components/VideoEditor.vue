@@ -110,11 +110,23 @@
       </button>
 
       <!-- Success badge -->
-      <div v-if="hookGenerated && !isGenerating" class="flex items-center gap-2 text-xs text-green-400 animate-fade-in">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-        </svg>
-        Hook AI berhasil digenerate! Skrip sudah terisi di bawah — edit sesukamu.
+      <div v-if="hookGenerated && !isGenerating" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-green-900/20 border border-green-700/30 rounded-xl p-4 animate-fade-in">
+        <div class="flex items-center gap-2 text-xs text-green-400">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg>
+          Hook AI berhasil digenerate! Silakan cek & edit di Step 2.
+        </div>
+        <button
+          type="button"
+          class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-[11px] font-bold rounded-lg transition-colors shadow-lg shadow-green-900/20"
+          @click="generateHook"
+        >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Coba Lagi (Regenerate)
+        </button>
       </div>
 
       <!-- Hook error -->
@@ -215,19 +227,28 @@
         <p v-if="errors.video" class="mt-2 text-sm text-red-400">{{ errors.video }}</p>
       </div>
 
-      <!-- Voiceover Script -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <label for="prompt" class="block text-sm font-medium text-slate-300">
-            Skrip Voiceover <span class="text-brand-400">*</span>
-          </label>
-          <span class="text-xs text-slate-500">{{ prompt.length }} karakter</span>
+      <!-- Voiceover Script Editor -->
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex flex-col">
+            <label for="prompt" class="text-sm font-semibold text-slate-200">
+              Script Editor <span class="text-brand-400">*</span>
+            </label>
+            <span class="text-[11px] text-slate-500">Koreksi skrip AI sesuai kebutuhanmu sebelum TTS</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1 px-2 py-1 bg-brand-900/30 border border-brand-700/50 rounded-md">
+              <span class="text-[10px] font-bold text-brand-400 uppercase tracking-wider">Estimasi</span>
+              <span class="text-xs font-mono text-brand-200">± {{ estimatedDuration }} Detik</span>
+            </div>
+            <span class="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded-md">{{ prompt.length }} Chars</span>
+          </div>
         </div>
         <textarea
           id="prompt"
           v-model="prompt"
           rows="5"
-          class="input-field resize-none"
+          class="input-field resize-none border-brand-900/20 focus:border-brand-500/50 bg-slate-800/20"
           placeholder="Skrip akan otomatis terisi setelah generate hook di atas, atau tulis sendiri di sini..."
         ></textarea>
         <p v-if="errors.prompt" class="mt-2 text-sm text-red-400">{{ errors.prompt }}</p>
@@ -333,7 +354,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -363,6 +384,14 @@ const isGenerating     = ref(false)
 const hookError        = ref('')
 
 const errors = reactive({ video: '', prompt: '' })
+
+// ── Computed ──────────────────────────────────────────────────────────────────
+const estimatedDuration = computed(() => {
+  const words = prompt.value.trim().split(/\s+/).filter(w => w.length > 0).length
+  if (words === 0) return 0
+  // Standard Indonesian narrations: ~140 words per minute
+  return Math.ceil(words / 2.33)
+})
 
 // ── Duration Modes ────────────────────────────────────────────────────────────
 const durationModes = [
