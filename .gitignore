@@ -40,4 +40,5 @@ logs/
 # Generated Media (managed by backend)
 backend/static/videos/*.mp4
 backend/temp_processing/
-backend/hook_logs.csv
+backend/logs/*
+!backend/logs/.gitkeep

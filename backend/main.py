@@ -47,13 +47,15 @@ ALLOWED_EXTENSIONS = {".mp4"}
 API_TIMEOUT_SECONDS = 120
 
 # ── Hook Generation Log (CSV) ─────────────────────────────────────────────────
-LOG_FILE   = BASE_DIR / "hook_logs.csv"
+LOGS_DIR   = BASE_DIR / "logs"
+LOG_FILE   = LOGS_DIR / "hook_logs.csv"
 LOG_LOCK   = threading.Lock()
 LOG_HEADER = ["no", "time", "platform", "variation", "input_product", "output_script", "log_id"]
 
 def _ensure_log_header():
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
     if not LOG_FILE.exists():
-        with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
+        with open(LOG_FILE, "w", newline="", encoding="utf-8-sig") as f:
             csv.writer(f).writerow(LOG_HEADER)
 
 _ensure_log_header()
@@ -105,6 +107,7 @@ async def lifespan(app: FastAPI):
     TEMP_DIR.mkdir(exist_ok=True)
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
     yield
 
 

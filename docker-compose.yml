@@ -15,7 +15,7 @@ services:
       - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
     volumes:
       # Persist the logs
-      - ./backend/hook_logs.csv:/app/hook_logs.csv
+      - ./backend/logs:/app/logs
 
   frontend:
     build:
