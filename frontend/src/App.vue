@@ -18,29 +18,24 @@
 
         <!-- Nav Tabs -->
         <nav class="flex gap-1 bg-slate-800/60 rounded-xl p-1">
-          <button
-            @click="activePage = 'editor'"
-            :class="activePage === 'editor'
-              ? 'bg-brand-600 text-white shadow'
-              : 'text-slate-400 hover:text-white'"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
+          <router-link
+            to="/"
+            active-class="bg-brand-600 text-white shadow"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
             🎬 Editor
-          </button>
-          <button
-            @click="activePage = 'logs'"
-            :class="activePage === 'logs'
-              ? 'bg-brand-600 text-white shadow'
-              : 'text-slate-400 hover:text-white'"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
+          </router-link>
+          <router-link
+            to="/logs"
+            active-class="bg-brand-600 text-white shadow"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
             📋 Log Prompt
-          </button>
+          </router-link>
         </nav>
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 py-10">
-      <VideoEditor v-if="activePage === 'editor'" />
-      <LogViewer  v-if="activePage === 'logs'" />
+    <main class="max-w-6xl mx-auto px-4 py-10 text-slate-100">
+      <router-view />
     </main>
 
     <footer class="border-t border-white/10 py-6 text-center text-slate-500 text-sm">
@@ -50,9 +45,4 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import VideoEditor from './components/VideoEditor.vue'
-import LogViewer  from './components/LogViewer.vue'
-
-const activePage = ref('editor')
 </script>
