@@ -205,11 +205,14 @@ const apiBase       = API_BASE
 async function refreshLogs() {
   loading.value = true
   error.value   = ''
+  console.log('[LogViewer] Fetching from:', `${API_BASE}/api/logs`)
   try {
     const res = await axios.get(`${API_BASE}/api/logs`)
+    console.log('[LogViewer] Response data:', res.data)
     // Reverse so newest appears first
     logs.value = [...res.data.logs].reverse()
   } catch (err) {
+    console.error('[LogViewer] Request failed:', err)
     error.value = 'Gagal memuat log. Pastikan backend berjalan.'
   } finally {
     loading.value = false

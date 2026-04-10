@@ -64,7 +64,7 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
     try:
         with LOG_LOCK:
             try:
-                with open(LOG_FILE, "r", encoding="utf-8") as f:
+                with open(LOG_FILE, "r", encoding="utf-8-sig") as f:
                     row_count = sum(1 for _ in csv.reader(f)) - 1
             except Exception:
                 row_count = 0
@@ -384,9 +384,6 @@ Aturan penulisan:
 - Gunakan Bahasa Indonesia gaul yang natural dan relatable
 - Tulis angka dalam kata (misal: seratus ribu, bukan 100.000)
 - Tulis persentase dalam kata (misal: lima belas persen, bukan 15%) — DILARANG menggunakan simbol %
-- Tambahkan jeda alami dengan koma dan titik
-- Maksimal 5 kalimat — hook yang bagus singkat dan langsung menghantam
-- Jangan gunakan emoji, hashtag, atau tanda bintang
 - Bicara ke satu orang pakai kata "kamu" — bukan ke kerumunan pakai "kalian" atau "guys"
 - Langsung mulai tanpa basa-basi atau salam pembuka
 - Akhiri dengan kalimat yang mendorong rasa penasaran atau action
@@ -725,7 +722,7 @@ def get_logs():
     _ensure_log_header()
     rows = []
     try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
+        with open(LOG_FILE, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 log_id = row.get("log_id")
