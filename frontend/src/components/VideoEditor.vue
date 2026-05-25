@@ -464,7 +464,7 @@ async function generateHook() {
     formData.append('hook_type',    hookType.value)
     formData.append('variation',    varItem.key)
 
-    const response = await axios.post(`${API_BASE_URL}/api/generate-hook`, formData)
+    const response = await axios.post(`${API_BASE_URL}/api/generate-hook`, formData, { timeout: 60000 })
     prompt.value        = response.data.script
     logId.value         = response.data.log_id || ''
     hookGenerated.value = true
@@ -580,7 +580,7 @@ async function handleSubmit() {
 
     const endpoint = mode.value === 'video' ? '/api/process-video' : '/api/generate-audio'
     const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData, {
-      timeout: 300_000,
+      timeout: 300000,
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
         if (mode.value === 'audio') {

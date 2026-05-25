@@ -18,6 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import requests
+import httpx
 import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
@@ -51,33 +52,39 @@ LOGS_DIR   = BASE_DIR / "logs"
 LOG_FILE   = LOGS_DIR / "hook_logs.csv"
 LOG_LOCK   = threading.Lock()
 LOG_HEADER = ["no", "time", "platform", "variation", "input_product", "output_script", "log_id"]
+global_row_count = 0
 
 def _ensure_log_header():
+    global global_row_count
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     if not LOG_FILE.exists():
         with open(LOG_FILE, "w", newline="", encoding="utf-8-sig") as f:
             csv.writer(f).writerow(LOG_HEADER)
+        global_row_count = 0
+    else:
+        try:
+            with open(LOG_FILE, "r", encoding="utf-8-sig") as f:
+                global_row_count = sum(1 for _ in csv.reader(f)) - 1
+        except Exception:
+            global_row_count = 0
 
 _ensure_log_header()
 
 
 def append_hook_log(platform: str, variation: str, product: str, script: str) -> str:
+    global global_row_count
     log_id = str(uuid.uuid4())
     try:
         with LOG_LOCK:
-            try:
-                with open(LOG_FILE, "r", encoding="utf-8-sig") as f:
-                    row_count = sum(1 for _ in csv.reader(f)) - 1
-            except Exception:
-                row_count = 0
+            global_row_count += 1
             row = [
-                row_count + 1,
+                global_row_count,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 platform, variation, product, script, log_id,
             ]
             with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerow(row)
-        logger.info("Hook log appended: row #%d | %s | %s", row_count + 1, platform, product)
+        logger.info("Hook log appended: #%d | %s | %s", global_row_count, platform, product)
     except Exception as e:
         logger.error("Failed to append hook log: %s", e)
     return log_id
@@ -148,59 +155,52 @@ def cleanup_files(*paths: Path) -> None:
             pass
 
 
-def generate_voice_from_pollinations(prompt: str, voice: str, output_path: Path) -> None:
-    logger.info("Preparing Pollinations request for voice: %s", voice)
-    try:
-        if voice.lower() == "whisper":
-            import urllib.parse
-            safe_prompt = prompt.replace("/", " ").replace("\n", " ")
-            encoded_prompt = urllib.parse.quote(safe_prompt)
-            endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/audio/{encoded_prompt}?model={voice}"
-            headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
-            response = requests.get(endpoint, headers=headers, timeout=API_TIMEOUT_SECONDS, stream=True)
-        else:
-            endpoint = f"{POLLINATIONS_API_URL.rstrip('/')}/v1/audio/speech"
-            headers = {
-                "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            payload = {"input": prompt, "voice": voice, "response_format": "mp3"}
-            response = requests.post(
-                endpoint, headers=headers, json=payload,
-                timeout=API_TIMEOUT_SECONDS, stream=True,
+async def generate_voice_from_pollinations(prompt: str, voice_model: str, output_path: Path):
+    """
+    ASYNC: Calls Pollinations TTS API using httpx to prevent blocking.
+    """
+    logger.info("Calling Pollinations TTS (ASYNC) | prompt: %s...", prompt[:30])
+
+    params = {
+        "voice": voice_model,
+        "private": "true",
+        "timestamp": str(int(time.time())),
+        "prompt": prompt
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                POLLINATIONS_API_URL + "/voice",
+                params=params,
+                timeout=60.0,
+                headers={"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
             )
-    except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Pollinations AI API timed out.")
-    except requests.exceptions.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"Error calling Pollinations AI: {exc}")
+            response.raise_for_status()
 
-    ct = response.headers.get("content-type", "")
-    logger.info("Pollinations response: status=%s content-type=%s content-length=%s",
-                response.status_code, ct, response.headers.get("content-length", "?"))
+            # Check if it's actual audio
+            ct = response.headers.get("Content-Type", "").lower()
+            if "audio" not in ct:
+                body = response.text[:200]
+                raise HTTPException(status_code=502, detail=f"Pollinations returned non-audio ({ct}): {body}")
 
-    if response.status_code == 401:
-        raise HTTPException(status_code=401, detail="Invalid Pollinations API key (401).")
-    if response.status_code == 402:
-        raise HTTPException(status_code=402, detail="Insufficient Pollinations credits (402).")
-    if response.status_code == 404:
-        raise HTTPException(status_code=502, detail=f"Pollinations audio endpoint not found (404). URL: {endpoint}")
-    if not response.ok:
-        raise HTTPException(status_code=502, detail=f"Pollinations returned HTTP {response.status_code}: {response.text[:300]}")
-    if any(t in ct for t in ("text/html", "text/plain", "application/json")):
-        body = response.text[:500]
-        logger.error("Pollinations returned non-audio body: %s", body)
-        raise HTTPException(status_code=502, detail=f"Pollinations returned non-audio content ({ct}): {body}")
+            with open(output_path, "wb") as f:
+                f.write(response.content)
 
-    with open(output_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
+            saved = output_path.stat().st_size
+            logger.info("Audio saved: %s (%d bytes)", output_path.name, saved)
+            if saved < 512:
+                raise HTTPException(status_code=502, detail="Pollinations returned empty audio. Check API key.")
 
-    saved = output_path.stat().st_size
-    logger.info("Audio saved: %s (%d bytes)", output_path.name, saved)
-    if saved < 512:
-        raise HTTPException(status_code=502,
-            detail=f"Pollinations returned empty audio ({saved} bytes). Check API key credit balance.")
+        except httpx.TimeoutException:
+            logger.error("Pollinations TTS side timeout (60s)")
+            raise HTTPException(status_code=504, detail="AI Voice sedang sibuk (Timeout 60s). Coba lagi.")
+        except httpx.HTTPStatusError as e:
+            logger.error("Pollinations TTS HTTP Error: %s", e)
+            raise HTTPException(status_code=e.response.status_code, detail=f"API Voice Error: {e.response.text}")
+        except Exception as e:
+            logger.error("Unexpected TTS Error: %s", e)
+            raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
 
 
 def crop_to_portrait(clip):
@@ -280,23 +280,21 @@ def merge_video_audio(
         raise RuntimeError(f"Video merge error: {e}") from e
 
 
-# ── Endpoint: Process Video ───────────────────────────────────────────────────
+# ── Endpoint: Generate Video ──────────────────────────────────────────────────
 @app.post("/api/process-video")
-def process_video(
-    prompt_text: str = Form(...),
-    voice_model: str = Form("nova"),
+async def process_video(
+    background_tasks: BackgroundTasks,
     video: UploadFile = File(...),
+    prompt_text: str = Form(...),
+    voice_model: str = Form("whisper"),
     duration_mode: str = Form("auto"),
-    log_id: str = Form(None),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     force_portrait: str = Form("true"),
+    log_id: str = Form(None),
 ):
-    suffix = Path(video.filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"Only .mp4 files are accepted. Got: '{suffix}'")
-    if not prompt_text.strip():
-        raise HTTPException(status_code=400, detail="prompt_text cannot be empty.")
-
+    suffix = Path(video.filename).suffix.lower()
+    if suffix not in (".mp4", ".mov", ".avi"):
+        suffix = ".mp4"
+    
     job_id = uuid.uuid4().hex
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -305,23 +303,22 @@ def process_video(
     output_path = job_dir / "final_output.mp4"
 
     try:
-        video.file.seek(0)
+        # Save uploaded video
         with open(raw_video_path, "wb") as buffer:
-            while chunk := video.file.read(1024 * 1024):
-                buffer.write(chunk)
-            buffer.flush()
-            os.fsync(buffer.fileno())
+            shutil.copyfileobj(video.file, buffer)
 
         if raw_video_path.stat().st_size < 1024:
-            raise HTTPException(status_code=400, detail="File video terlalu kecil. Pastikan file .mp4 valid.")
+            raise HTTPException(status_code=400, detail="File video terlalu kecil.")
 
-        generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+        # CALL ASYNC VOICE GEN
+        await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         if duration_mode not in ("auto", "loop_video", "trim_audio"):
             duration_mode = "auto"
         portrait = force_portrait.lower() not in ("false", "0", "no")
 
-        merge_video_audio(raw_video_path, voice_path, output_path, duration_mode, portrait)
+        # MoviePy operations are heavy - run in thread pool
+        await asyncio.to_thread(merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait)
 
         if log_id:
             shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
@@ -336,14 +333,13 @@ def process_video(
             "log_id": log_id
         }
 
-    except HTTPException as he:
+    except HTTPException:
         cleanup_files(job_dir)
-        logger.error("HTTPException in /api/process-video: %s %s", he.status_code, he.detail)
         raise
     except Exception as e:
         cleanup_files(job_dir)
-        logger.error("Unhandled exception:\n%s", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Unexpected server error: {e}")
+        logger.error("Unhandled exception in process_video: %s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -565,14 +561,7 @@ _V2_MAP = {
     ),
 }
 
-
-# ── FIX #11: Global cleaner — opener statis & label visual ───────────────────
 def _clean_hook_output(text: str, variation: str) -> str:
-    """
-    1. Untuk v2_visual: ekstrak bagian TEKS: jika model masih pakai label
-    2. Untuk semua variasi: strip opener statis jika masih lolos blacklist
-    """
-    # Khusus v2_visual
     if variation == "v2_visual":
         teks_parts = re.findall(r'TEKS:\s*(.+?)(?:\n|$)', text, re.IGNORECASE)
         if teks_parts:
@@ -583,14 +572,12 @@ def _clean_hook_output(text: str, variation: str) -> str:
             text = text.replace('|', ' ').strip()
             text = re.sub(r'\s{2,}', ' ', text)
 
-    # Semua variasi: bersihkan opener statis
     banned_pattern = '|'.join(re.escape(w) for w in _BANNED_OPENERS)
     cleaned = re.sub(rf'^({banned_pattern})[,!\s]+', '', text, flags=re.IGNORECASE)
     if cleaned != text:
         logger.info("Opener statis dibersihkan: '%s...' -> '%s...'", text[:30], cleaned[:30])
         text = cleaned[0].upper() + cleaned[1:] if cleaned else text
 
-    # Safety net: ganti simbol % dengan kata "persen" agar tidak break URI Pollinations
     if '%' in text:
         text = re.sub(r'(\d+)\s*%', lambda m: m.group(1) + ' persen', text)
         text = text.replace('%', ' persen')
@@ -598,10 +585,8 @@ def _clean_hook_output(text: str, variation: str) -> str:
 
     return text.strip()
 
-
-# ── Endpoint: Generate Hook ───────────────────────────────────────────────────
 @app.post("/api/generate-hook")
-def generate_hook(
+async def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
     hook_type: str    = Form("tiktok", description="Platform: tiktok atau shopee"),
     variation: str    = Form("viral",  description="Variasi hook style"),
@@ -621,8 +606,6 @@ def generate_hook(
         style_instruction = styles.get(variation, list(styles.values())[0])
 
     platform_label = "TikTok" if hook_type == "tiktok" else "Shopee"
-
-    # ── FIX #10: user_prompt — ganti trigger kata ─────────────────────────────
     user_prompt = (
         f"Produk: {product_name}\n"
         f"Platform: {platform_label}\n"
@@ -630,65 +613,63 @@ def generate_hook(
         f"Tulis hooknya sekarang, langsung mulai tanpa penjelasan:"
     )
 
-    # ── FIX #3: temperature dinamis ──────────────────────────────────────────
-    temperature = 1.1 if variation.startswith("v2_") else 0.85
+    logger.info("Generating hook (ASYNC) | product=%s platform=%s variation=%s",
+                product_name, hook_type, variation)
 
-    logger.info("Generating hook | product=%s platform=%s variation=%s temp=%.2f",
-                product_name, hook_type, variation, temperature)
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"{TEXT_API_URL.rstrip('/')}/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "openai",
+                    "messages": [
+                        {"role": "system", "content": current_system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 600 if variation in (
+                        "v2_education", "v2_visual", "v2_problem", "v2_personal", "v2_contra",
+                        "shock", "story", "review", "premium"
+                    ) else 400,
+                    "private": True,
+                },
+                timeout=45.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            script = data["choices"][0]["message"]["content"].strip()
+            script = _clean_hook_output(script, variation)
 
-    try:
-        response = requests.post(
-            f"{TEXT_API_URL.rstrip('/')}/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gemini-fast",
-                "messages": [
-                    {"role": "system", "content": current_system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": 600 if variation in (
-                    "v2_education", "v2_visual", "v2_problem", "v2_personal", "v2_contra",
-                    "shock", "story", "review", "premium"
-                ) else 400,  # viral, fomo, flash, bundle: 5-6 kalimat cukup 400 token
-                "private": True,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        script = data["choices"][0]["message"]["content"].strip()
+            log_id = append_hook_log(hook_type, variation, product_name, script)
+            
+            return {
+                "script": script,
+                "product": product_name,
+                "platform": hook_type,
+                "variation": variation,
+                "log_id": log_id,
+                "is_visual_only": variation == "v2_visual",
+                "status": "success"
+            }
 
-        # ── FIX #11: bersihkan output ─────────────────────────────────────────
-        script = _clean_hook_output(script, variation)
-
-        logger.info("Hook generated: %d chars", len(script))
-        log_id = append_hook_log(hook_type, variation, product_name, script)
-
-        return {
-            "script": script,
-            "product": product_name,
-            "platform": hook_type,
-            "variation": variation,
-            "log_id": log_id,
-            "is_visual_only": variation == "v2_visual",
-        }
-
-    except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Pollinations text API timeout. Coba lagi.")
-    except requests.exceptions.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"Error calling Pollinations text API: {exc}")
-    except (KeyError, IndexError) as exc:
-        logger.error("Unexpected API response structure: %s", traceback.format_exc())
-        raise HTTPException(status_code=502, detail=f"Unexpected API response format: {exc}")
+        except httpx.TimeoutException:
+            logger.error("Pollinations text API timeout (45s)")
+            raise HTTPException(status_code=504, detail="AI sedang sibuk (Timeout 45s). Coba lagi.")
+        except httpx.HTTPStatusError as e:
+            logger.error("Pollinations API HTTP Error: %s", e)
+            raise HTTPException(status_code=e.response.status_code, detail=f"API AI Error: {e.response.text}")
+        except Exception as e:
+            logger.error("Error generating hook: %s", str(e))
+            raise HTTPException(status_code=500, detail=f"Gagal generate hook: {str(e)}")
 
 
 # ── Endpoint: Generate Audio Only ─────────────────────────────────────────────
 @app.post("/api/generate-audio")
-def generate_audio_only(
+async def generate_audio_only(
     background_tasks: BackgroundTasks,
     prompt_text: str = Form(...),
     voice_model: str = Form("whisper"),
@@ -696,10 +677,10 @@ def generate_audio_only(
 ):
     job_id = str(uuid.uuid4())
     job_dir = TEMP_DIR / job_id
-    job_dir.mkdir(exist_ok=True)
+    job_dir.mkdir(parents=True, exist_ok=True)
     try:
         voice_path = job_dir / "voice.mp3"
-        generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+        await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         target_id = log_id if log_id else job_id
         shutil.copy(voice_path, AUDIOS_DIR / f"{target_id}.mp3")
