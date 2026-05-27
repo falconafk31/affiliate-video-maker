@@ -39,6 +39,8 @@ logs/
 
 # Generated Media (managed by backend)
 backend/static/videos/*.mp4
+backend/static/audios/*.mp3
+backend/*.mp3
 backend/temp_processing/
 backend/logs/*
 !backend/logs/.gitkeep

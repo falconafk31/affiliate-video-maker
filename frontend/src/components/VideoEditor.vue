@@ -364,7 +364,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.pro
 const fileInput      = ref(null)
 const selectedFile   = ref(null)
 const prompt         = ref('')
-const voiceModel     = ref('whisper')
+const voiceModel     = ref('id-ID-GadisNeural')
 const logId          = ref('')
 const isDragging     = ref(false)
 const isLoading      = ref(false)
@@ -417,7 +417,7 @@ const durationModes = [
 
 // ── Voice Options ─────────────────────────────────────────────────────────────
 const voiceOptions = [
-  { value: 'whisper', label: 'Whisper — Laki-laki/Perempuan, Natural Berbisik' },
+  { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
 ]
 
 // ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
@@ -634,7 +634,7 @@ function reset() {
   clearFile()
   prompt.value        = ''
   productName.value   = ''
-  voiceModel.value    = 'whisper'
+  voiceModel.value    = 'id-ID-GadisNeural'
   durationMode.value  = 'auto'
   hookGenerated.value = false
   outputVideoUrl.value = ''

@@ -157,8 +157,24 @@ def cleanup_files(*paths: Path) -> None:
 
 async def generate_voice_from_pollinations(prompt: str, voice_model: str, output_path: Path):
     """
-    ASYNC: Calls Pollinations TTS API using httpx to prevent blocking.
+    ASYNC: Calls Edge-TTS or Pollinations TTS API.
     """
+    if voice_model in ("id-ID-GadisNeural", "whisper"):
+        import edge_tts
+        actual_voice = "id-ID-GadisNeural"
+        logger.info("Generating voice via Edge-TTS | voice: %s (requested: %s), prompt: %s...", actual_voice, voice_model, prompt[:30])
+        try:
+            communicate = edge_tts.Communicate(prompt, actual_voice)
+            await communicate.save(str(output_path))
+            saved = output_path.stat().st_size
+            logger.info("Edge-TTS Audio saved: %s (%d bytes)", output_path.name, saved)
+            if saved < 512:
+                raise HTTPException(status_code=502, detail="Edge-TTS returned empty audio.")
+            return
+        except Exception as e:
+            logger.error("Edge-TTS Error: %s", e)
+            raise HTTPException(status_code=500, detail=f"Gagal generate suara Edge-TTS: {str(e)}")
+
     logger.info("Calling Pollinations TTS (ASYNC) | prompt: %s...", prompt[:30])
 
     params = {
@@ -201,6 +217,7 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         except Exception as e:
             logger.error("Unexpected TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
+
 
 
 def crop_to_portrait(clip):
@@ -380,6 +397,7 @@ HOOK_SYSTEM_PROMPT = f"""Kamu adalah kreator konten TikTok dan Shopee yang sudah
 Kamu bicara natural seperti orang biasa yang excited nemuin produk bagus — bukan copywriter yang nulis skrip iklan.
 
 Aturan penulisan:
+- DILARANG menulis lebih dari 500 karakter (termasuk spasi).
 - Gunakan Bahasa Indonesia gaul yang natural dan relatable
 - Tulis angka dalam kata (misal: seratus ribu, bukan 100.000)
 - Tulis persentase dalam kata (misal: lima belas persen, bukan 15%) — DILARANG menggunakan simbol %
@@ -397,6 +415,7 @@ SIAPA KAMU
 Kamu bicara seperti teman yang baru nemuin sesuatu yang bikin kaget, atau pelanggan yang genuinely excited, atau orang yang mau berbagi pengalaman jujur. Nadamu hangat, santai, manusiawi — sama sekali tidak terasa iklan.
 
 ATURAN KERAS — WAJIB DIIKUTI
+- DILARANG menulis lebih dari 500 karakter (termasuk spasi).
 - DILARANG memulai dengan kata-kata berikut karena terdengar bot: {_BANNED_OPENERS_STR}
 - DILARANG menggunakan pola kalimat template apapun
 - DILARANG menggunakan emoji atau tanda bintang
@@ -433,7 +452,7 @@ HOOK_STYLE_PROMPTS = {
             "Energi harus tinggi dari awal sampai akhir — tidak boleh ada kalimat yang flat."
         ),
         "shock": (
-            "Buat NARASI VOICEOVER PENUH dengan format shock & reveal — 8 sampai 10 kalimat, audio minimal 25 detik. "
+            "Buat NARASI VOICEOVER PENUH dengan format shock & reveal — 8 sampai 10 kalimat, audio maximal 25 detik. "
             "Struktur: "
             "(1) Buka dari titik di mana kamu sudah memegang produknya dan baru sadar sesuatu yang mengejutkan, "
             "(2) bangun rasa penasaran dengan detail spesifik yang tidak terduga, "
@@ -453,7 +472,7 @@ HOOK_STYLE_PROMPTS = {
             "JANGAN mulai dengan pernah, dulu, atau pertanyaan ke audiens."
         ),
         "fomo": (
-            "Buat NARASI VOICEOVER FOMO urgency — 5 sampai 6 kalimat, audio 15 sampai 20 detik. "
+            "Buat NARASI VOICEOVER FOMO urgency — 5 sampai 6 kalimat, audio 15 sampai 20 detik maximal 30 detik. "
             "Struktur: "
             "(1) Hook pembuka dengan angka stok atau waktu yang spesifik — langsung ke fakta mendesak, "
             "(2) tunjukkan apa yang didapat jika action sekarang — nilai konkret dalam rupiah, "
@@ -465,7 +484,7 @@ HOOK_STYLE_PROMPTS = {
     },
     "shopee": {
         "flash": (
-            "Buat NARASI VOICEOVER flash sale Shopee — 5 sampai 6 kalimat, audio 15 sampai 20 detik. "
+            "Buat NARASI VOICEOVER flash sale Shopee — 5 sampai 6 kalimat, audio 15 sampai 20 detik maximal 30 detik. "
             "Struktur: "
             "(1) Hook pembuka dengan harga final atau angka diskon yang mengejutkan — langsung ke angka, "
             "(2) breakdown kenapa harga ini gila — bandingkan harga normal vs harga sekarang, "
@@ -485,7 +504,7 @@ HOOK_STYLE_PROMPTS = {
             "JANGAN mulai dengan kata jujur, serius, atau beneran."
         ),
         "bundle": (
-            "Buat NARASI VOICEOVER bundle deal Shopee — 5 sampai 6 kalimat, audio 15 sampai 20 detik. "
+            "Buat NARASI VOICEOVER bundle deal Shopee — 5 sampai 6 kalimat, audio 15 sampai 20 detik maximal 30 detik. "
             "Struktur: "
             "(1) Hook pembuka dengan total hemat dalam rupiah yang langsung mengejutkan, "
             "(2) sebutkan isi bundle satu per satu dengan nilai masing-masing agar terasa tidak masuk akal, "
@@ -495,7 +514,7 @@ HOOK_STYLE_PROMPTS = {
             "Nada harus excited — seperti teman yang excited kasih info deal rahasia."
         ),
         "premium": (
-            "Buat NARASI VOICEOVER PENUH dengan format premium value — 8 sampai 10 kalimat, audio minimal 20 detik. "
+            "Buat NARASI VOICEOVER PENUH dengan format premium value — 8 sampai 10 kalimat, audio maximal 30 detik. "
             "Struktur: "
             "(1) Buka dengan kontras harga vs kualitas yang terasa tidak masuk akal — langsung ke angka, "
             "(2) perkuat dengan satu detail spesifik yang membuktikan kualitas premium, "
@@ -516,7 +535,7 @@ _V2_MAP = {
         "(3) hadirkan produk sebagai solusi secara natural tanpa terasa jualan, "
         "(4) tunjukkan satu bukti konkret bahwa produk ini benar-benar menyelesaikan masalah tadi, "
         "(5) tutup dengan CTA yang mendorong action tanpa terkesan memaksa. "
-        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik."
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik maximal 30 detik."
     ),
     "v2_personal": (
         "Angle: PERSONAL EXPERIENCE — tulis NARASI VOICEOVER PENUH, bukan sekadar hook pendek. "
@@ -526,7 +545,7 @@ _V2_MAP = {
         "(3) hubungkan ke situasi sebelum pakai produk ini — kontrasnya harus terasa nyata, "
         "(4) perkuat dengan satu detail spesifik yang membuat pengalaman ini credible, "
         "(5) tutup dengan rekomendasi yang terasa natural seperti cerita ke teman, bukan ke kamera. "
-        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik."
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik maximal 30 detik."
     ),
     "v2_education": (
         "Angle: EDUCATION — tulis NARASI VOICEOVER PENUH, bukan sekadar hook pendek. "
@@ -534,7 +553,7 @@ _V2_MAP = {
         "(2) jelaskan kenapa ini penting atau relevan untuk produk ini, "
         "(3) hubungkan ke pengalaman nyata yang relatable, "
         "(4) tutup dengan CTA yang mendorong rasa ingin tau atau action. "
-        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik maximal 30 detik. "
         "Audiens harus merasa dapat ilmu gratis, bukan sedang ditonton iklan. "
         "DILARANG menggunakan simbol persen — tulis dalam kata."
     ),
@@ -546,7 +565,7 @@ _V2_MAP = {
         "(3) sajikan argumen balik dengan logika yang kuat dan fakta konkret, "
         "(4) perkuat dengan satu bukti nyata atau pengalaman yang mendukung pendapatmu, "
         "(5) tutup dengan CTA yang mengajak audiens untuk buktikan sendiri. "
-        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik maximal 30 detik. "
         "Harus terasa berani tapi masuk akal — bukan sensasional."
     ),
     "v2_visual": (
@@ -555,7 +574,7 @@ _V2_MAP = {
         "(2) lanjutkan dengan voiceover yang menggambarkan apa yang terjadi seolah kamu sedang melihatnya, "
         "(3) sampaikan fakta atau keunggulan produk yang terungkap dari adegan itu, "
         "(4) tutup dengan CTA singkat yang natural. "
-        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik. "
+        "Target panjang: 5 sampai 8 kalimat agar audio minimal 20 detik maximal 30 detik. "
         "DILARANG menulis VISUAL:, TEKS:, FORMAT:, NARASI:, atau simbol | dalam output. "
         "Output HANYA kata-kata yang diucapkan — bukan deskripsi teknis atau stage direction."
     ),
