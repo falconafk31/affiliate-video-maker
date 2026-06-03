@@ -1,40 +1,37 @@
 <template>
-  <div class="min-h-screen bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(14,165,233,0.15),rgba(255,255,255,0))]">
-    <header class="border-b border-white/10 bg-slate-950/80 backdrop-blur-md sticky top-0 z-10">
-      <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
+  <div class="min-h-screen bg-retro-bg font-mono">
+    <header class="border-b-4 border-retro-cyan bg-retro-black sticky top-0 z-10 shadow-[0_4px_0_0_#FF00FF]">
+      <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-3 text-center sm:text-left">
+        <div class="flex items-center justify-center sm:justify-start gap-3 w-full sm:w-auto">
           <!-- Logo icon -->
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center shadow-lg">
-            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
+          <div class="w-8 h-8 sm:w-10 sm:h-10 border-2 border-retro-cyan bg-retro-magenta flex items-center justify-center shadow-[2px_2px_0_0_#00FFFF] flex-shrink-0">
+            <span class="font-retro font-bold text-xl sm:text-2xl text-black">V</span>
           </div>
           <div>
-            <h1 class="text-lg font-bold text-white leading-none">Affiliate Video Maker</h1>
-            <p class="text-xs text-slate-400">Powered by Pollinations AI</p>
+            <h1 class="text-2xl sm:text-3xl font-bold text-retro-cyan font-retro uppercase leading-none tracking-wider shadow-black drop-shadow-md">Affiliate Video Maker</h1>
+            <p class="text-[9px] sm:text-[10px] text-retro-magenta font-bold uppercase mt-1">Powered by Pollinations AI</p>
           </div>
         </div>
 
         <!-- Nav Tabs -->
-        <nav class="flex gap-1 bg-slate-800/60 rounded-xl p-1">
+        <nav class="flex flex-wrap justify-center gap-2 sm:gap-2 w-full sm:w-auto">
           <router-link
             to="/"
-            active-class="bg-brand-600 text-white shadow"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
-            🎬 Editor
+            active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
+            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            [ Editor ]
           </router-link>
           <router-link
             to="/library"
-            active-class="bg-brand-600 text-white shadow"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
-            📂 Library
+            active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
+            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            [ Library ]
           </router-link>
           <router-link
             to="/logs"
-            active-class="bg-brand-600 text-white shadow"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
-            📋 Log Prompt
+            active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
+            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            [ Logs ]
           </router-link>
         </nav>
       </div>

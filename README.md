@@ -1,6 +1,6 @@
-# 🎬 Affiliate Video Maker
+# 🎬 Affiliate Video Maker (Retro 8-Bit Edition)
 
-> **Automated AI-powered affiliate marketing video generator** — AI generates an Indonesian voiceover from your hook script and merges it with your raw video clip in one click.
+> **Automated AI-powered affiliate marketing video generator** — AI generates an Indonesian voiceover from your hook script and merges it with your raw video clip in one click. Features a lightning-fast native FFmpeg backend and a highly optimized **Modern 8-Bit Retro UI (Cyan/Magenta)** theme.
 
 ![Tech Stack](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)
 ![Vue.js](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D?logo=vue.js)
@@ -15,12 +15,13 @@
 |---|---|
 | 🤖 **AI Hook Generator** | Auto-generate Indonesian TikTok & Shopee affiliate hooks from a product name |
 | 🎙️ **Dual AI Voiceover** | **Edge-TTS** (natural Indonesian female Gadis voice) + **Pollinations GPT-Audio** (`openai-audio` model with optimized indonesian affiliate narrator prompt) |
-| 🎬 **Video Merge** | MoviePy + FFmpeg: 4x faster rendering with optimized threads and `ultrafast` preset |
-| ⚡ **Live Sync Editor** | Log CSV updates automatically if user edits script text; results card automatically resets on settings change |
+| 🎬 **Native FFmpeg Merge** | 10x faster and RAM-efficient raw FFmpeg backend rendering (completely replaced heavy MoviePy) |
+| ⚡ **Extreme Performance** | Lazy-loaded Vue Router, Mobile-optimized touch UI, and GZIP payload compression |
+| 🎨 **Retro 8-Bit UI** | Beautiful, lightweight Cyberpunk/Retro pixel UI without heavy CSS blur filters (60 FPS scrolling) |
 | 🔄 **Cache-Busting** | Timestamps appended to URLs to prevent browser from playing cached/old voice files when regenerating |
 | 🕒 **7-Day Video Log** | Rendered videos are saved and accessible via the UI for 7 days (auto-delete) |
 | 📊 **Log Prompt UI** | View generation history, play/download rendered videos, and see exact edited scripts |
-| 🔁 **Smart Duration Sync** | 3 modes: Auto (smart), Loop Video, Trim Audio |
+| 🔁 **Smart Duration Sync** | 3 modes: Auto (smart loop), Loop Video, Trim Audio |
 | 🛠️ **MCP Server** | Exposes `generate_ai_voice` & `merge_video_and_voice` as MCP tools |
 
 ---
@@ -28,8 +29,8 @@
 ## 🚀 Tech Stack
 
 ### Backend
-- **FastAPI** — REST API server
-- **MoviePy** — Video processing (FFmpeg backend)
+- **FastAPI** — REST API server (with GZipMiddleware)
+- **FFmpeg (Subprocess)** — Raw native video processing (Ultra-fast & RAM-efficient)
 - **Pollinations AI** — AI voiceover generation (no API cost for basic use; API key for credits)
 - **Python-dotenv** — Environment configuration
 

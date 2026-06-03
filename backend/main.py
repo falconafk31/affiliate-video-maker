@@ -8,6 +8,7 @@ import logging
 import traceback
 import threading
 import re
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -24,6 +25,7 @@ import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -176,12 +178,10 @@ async def lifespan(app: FastAPI):
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
-app = FastAPI(
-    title="Affiliate Video Maker API",
-    description="Generates AI voiceover and merges it with your uploaded video.",
-    version="1.0.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title="Affiliate Video Maker API", lifespan=lifespan)
+
+# Add GZIP Middleware to compress responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
@@ -354,23 +354,18 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
 
 
 
-def crop_to_portrait(clip):
-    w, h = clip.size
-    target_ratio = 9 / 16
-    current_ratio = w / h
-    if abs(current_ratio - target_ratio) < 0.01:
-        return clip
-    if current_ratio > target_ratio:
-        new_w = int(h * 9 / 16)
-        new_w = new_w if new_w % 2 == 0 else new_w - 1
-        logger.info("Cropping portrait: %dx%d -> %dx%d (width)", w, h, new_w, h)
-        return clip.crop(x_center=w / 2, width=new_w, height=h)
-    else:
-        new_h = int(w * 16 / 9)
-        new_h = new_h if new_h % 2 == 0 else new_h - 1
-        logger.info("Cropping portrait: %dx%d -> %dx%d (height)", w, h, w, new_h)
-        return clip.crop(width=w, height=new_h, y_center=h / 2)
-
+def get_media_duration(file_path: str) -> float:
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-show_entries",
+            "format=duration", "-of",
+            "default=noprint_wrappers=1:nokey=1", file_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(result.stdout.strip())
+    except Exception as e:
+        logger.error("Failed to get duration for %s: %s", file_path, e)
+        return 0.0
 
 def merge_video_audio(
     video_path: Path,
@@ -380,51 +375,56 @@ def merge_video_audio(
     force_portrait: bool = True,
 ) -> None:
     try:
-        from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
-        logger.info("Loading video: %s", video_path.name)
-        video = VideoFileClip(str(video_path))
-        video_no_audio = video.without_audio()
-
-        if force_portrait:
-            original_size = video_no_audio.size
-            video_no_audio = crop_to_portrait(video_no_audio)
-            if video_no_audio.size != original_size:
-                logger.info("Portrait crop applied: %s -> %s", original_size, video_no_audio.size)
-
-        audio = AudioFileClip(str(audio_path))
-        vid_dur = round(video_no_audio.duration, 3)
-        aud_dur = round(audio.duration, 3)
+        logger.info("Merging video with FFmpeg: %s", video_path.name)
+        
+        vid_dur = get_media_duration(str(video_path))
+        aud_dur = get_media_duration(str(audio_path))
         logger.info("Durations - video: %.2fs  audio: %.2fs  mode: %s", vid_dur, aud_dur, duration_mode)
 
-        if duration_mode == "trim_audio":
-            if aud_dur > vid_dur:
-                audio = audio.subclip(0, vid_dur)
-            final_video = video_no_audio.set_audio(audio)
-        elif duration_mode == "loop_video" or (duration_mode == "auto" and aud_dur > vid_dur):
-            loops_needed = int(aud_dur / vid_dur) + 1
-            logger.info("Looping video x%d to cover %.2fs", loops_needed, aud_dur)
-            looped_video = concatenate_videoclips([video_no_audio] * loops_needed)
-            looped_video = looped_video.subclip(0, aud_dur)
-            final_video = looped_video.set_audio(audio)
-        else:
-            logger.info("Trimming video to audio length (%.2fs)", aud_dur)
-            final_video = video_no_audio.subclip(0, aud_dur).set_audio(audio)
+        cmd = ["ffmpeg", "-y"]
+        
+        if duration_mode == "loop_video" or (duration_mode == "auto" and aud_dur > vid_dur):
+            cmd.extend(["-stream_loop", "-1"])
+            
+        cmd.extend(["-i", str(video_path), "-i", str(audio_path)])
 
-        logger.info("Rendering final video...")
-        final_video.write_videofile(
-            str(output_path),
-            codec="libx264",
-            audio_codec="aac",
-            temp_audiofile=str(output_path.parent / "temp_audio.m4a"),
-            remove_temp=True,
-            logger=None,
-            threads=4,
-            preset="ultrafast"
-        )
+        vf = []
+        if force_portrait:
+            vf.append("crop=ih*(9/16):ih")
+            
+        if vf:
+            cmd.extend(["-vf", ",".join(vf)])
+        
+        cmd.extend([
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest"
+        ])
+        
+        if not vf:
+            cmd.extend(["-c:v", "copy"])
+        else:
+            cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+
+        cmd.append(str(output_path))
+        
+        logger.info("Running FFmpeg command...")
+        
+        # Hide window on Windows to prevent popups
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+        process = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo)
+        
+        if process.returncode != 0:
+            logger.error("FFmpeg error output:\n%s", process.stderr)
+            raise RuntimeError(f"FFmpeg returned code {process.returncode}")
+
         logger.info("Render complete: %s", output_path.name)
-        video.close()
-        audio.close()
-        final_video.close()
 
     except Exception as e:
         logger.error("merge_video_audio failed:\n%s", traceback.format_exc())

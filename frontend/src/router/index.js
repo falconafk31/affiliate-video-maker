@@ -1,8 +1,10 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import VideoEditor from '../components/VideoEditor.vue'
-import LogViewer from '../components/LogViewer.vue'
-import VideoLibrary from '../components/VideoLibrary.vue'
-import NotFound from '../components/NotFound.vue'
+
+// Lazy loaded components to reduce initial bundle size
+const LogViewer = () => import('../components/LogViewer.vue')
+const VideoLibrary = () => import('../components/VideoLibrary.vue')
+const NotFound = () => import('../components/NotFound.vue')
 
 const routes = [
   {

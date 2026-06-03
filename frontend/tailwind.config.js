@@ -7,20 +7,24 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['JetBrains Mono', 'monospace'],
+        retro: ['VT323', 'monospace'],
+        mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
+        retro: {
+          bg: '#050505',
+          black: '#111111',
+          cyan: '#00FFFF',
+          magenta: '#FF00FF',
+          yellow: '#FFFF00',
+          green: '#00FF00',
+          border: '#333333',
+        },
         brand: {
-          50:  '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
+          400: '#00FFFF', // Cyan replacing primary bright
+          500: '#00CCCC', // Darker cyan
+          600: '#FF00FF', // Magenta replacing primary dark
         },
       },
       animation: {

@@ -3,8 +3,8 @@
 
     <!-- Hero text -->
     <div class="text-center space-y-2">
-      <h2 class="text-3xl sm:text-4xl font-bold text-white">
-        Generate AI-Powered <span class="text-brand-400">Affiliate Videos</span>
+      <h2 class="text-3xl sm:text-4xl font-bold text-slate-100">
+        Generate AI-Powered <span class="text-retro-cyan">Affiliate Videos</span>
       </h2>
       <p class="text-slate-400 max-w-xl mx-auto text-sm sm:text-base">
         Ketik nama produk, pilih platform, generate hook otomatis, lalu buat videonya!
@@ -14,23 +14,23 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          STEP 1 — Auto Hook Generator
     ════════════════════════════════════════════════════════════════════════ -->
-    <div class="glass-card p-6 sm:p-8 space-y-5">
+    <div class="retro-box p-6 sm:p-8 space-y-5">
       <div class="flex items-center gap-2 mb-1">
-        <span class="w-7 h-7 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">1</span>
-        <h3 class="text-base font-semibold text-white">Generate Hook Otomatis</h3>
-        <span class="ml-auto text-xs bg-brand-900/60 text-brand-300 border border-brand-700/50 rounded-full px-2 py-0.5">AI Generator</span>
+        <span class="w-7 h-7 rounded-none bg-retro-magenta text-black text-slate-100 text-sm font-bold flex items-center justify-center flex-shrink-0">1</span>
+        <h3 class="text-base font-semibold text-slate-100">Generate Hook Otomatis</h3>
+        <span class="ml-auto text-xs bg-brand-900/60 text-brand-300 border border-brand-700/50 rounded-none px-2 py-0.5">AI Generator</span>
       </div>
 
       <!-- Product name input -->
       <div>
         <label for="product-name" class="block text-sm font-medium text-slate-300 mb-2">
-          Nama Produk <span class="text-brand-400">*</span>
+          Nama Produk <span class="text-retro-cyan">*</span>
         </label>
         <input
           id="product-name"
           v-model="productName"
           type="text"
-          class="input-field"
+          class="input-retro"
           placeholder="Contoh: Serum Vitamin C Somethinc, Masker Wajah Aloe Vera, Celana Jogger Pria..."
           @keydown.enter.prevent="generateHook"
         />
@@ -79,7 +79,7 @@
             v-for="(v, i) in hookVariations[hookType]"
             :key="i"
             type="button"
-            class="text-xs py-2 px-3 rounded-lg border transition-all duration-150 text-left"
+            class="text-xs py-2 px-3 rounded-none border transition-all duration-150 text-left"
             :class="selectedVariation === i
               ? 'border-brand-500 bg-brand-900/40 text-brand-300'
               : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
@@ -94,7 +94,7 @@
       <button
         type="button"
         id="generate-hook-btn"
-        class="btn-primary w-full"
+        class="btn-retro w-full"
         :disabled="!productName.trim() || isGenerating"
         @click="generateHook"
       >
@@ -110,7 +110,7 @@
       </button>
 
       <!-- Success badge -->
-      <div v-if="hookGenerated && !isGenerating" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-green-900/20 border border-green-700/30 rounded-xl p-4 animate-fade-in">
+      <div v-if="hookGenerated && !isGenerating" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-green-900/20 border border-green-700/30 rounded-none p-4 animate-fade-in">
         <div class="flex items-center gap-2 text-xs text-green-400">
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
@@ -119,7 +119,7 @@
         </div>
         <button
           type="button"
-          class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-[11px] font-bold rounded-lg transition-colors shadow-lg shadow-green-900/20"
+          class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-slate-100 text-[11px] font-bold rounded-none transition-colors shadow-lg shadow-green-900/20"
           @click="generateHook"
         >
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -130,7 +130,7 @@
       </div>
 
       <!-- Hook error -->
-      <div v-if="hookError" class="flex items-start gap-2 bg-red-900/30 border border-red-700/50 rounded-xl p-3">
+      <div v-if="hookError" class="flex items-start gap-2 bg-red-900/30 border border-red-700/50 rounded-none p-3">
         <svg class="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
@@ -141,27 +141,27 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          STEP 2 — Video & Voiceover Form
     ════════════════════════════════════════════════════════════════════════ -->
-    <form @submit.prevent="handleSubmit" class="glass-card p-6 sm:p-8 space-y-6">
+    <form @submit.prevent="handleSubmit" class="retro-box p-6 sm:p-8 space-y-6">
       <div class="flex items-center justify-between gap-2 mb-1">
         <div class="flex items-center gap-2">
-          <span class="w-7 h-7 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">2</span>
-          <h3 class="text-base font-semibold text-white">Pilih Mode &amp; Proses</h3>
+          <span class="w-7 h-7 rounded-none bg-retro-magenta text-black text-slate-100 text-sm font-bold flex items-center justify-center flex-shrink-0">2</span>
+          <h3 class="text-base font-semibold text-slate-100">Pilih Mode &amp; Proses</h3>
         </div>
         
         <!-- Mode Switcher -->
-        <div class="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700">
+        <div class="flex bg-slate-800/80 p-1 rounded-none border border-slate-700">
           <button 
             type="button" 
-            class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-            :class="mode === 'video' ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'"
+            class="px-3 py-1.5 rounded-none text-xs font-medium transition-all"
+            :class="mode === 'video' ? 'bg-retro-magenta text-black text-slate-100 shadow-lg' : 'text-slate-400 hover:text-slate-200'"
             @click="mode = 'video'"
           >
             Video + Audio
           </button>
           <button 
             type="button" 
-            class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-            :class="mode === 'audio' ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'"
+            class="px-3 py-1.5 rounded-none text-xs font-medium transition-all"
+            :class="mode === 'audio' ? 'bg-retro-magenta text-black text-slate-100 shadow-lg' : 'text-slate-400 hover:text-slate-200'"
             @click="mode = 'audio'"
           >
             Hanya Audio (MP3)
@@ -172,17 +172,17 @@
       <!-- Drag & Drop Video Upload — Only if mode is 'video' -->
       <div v-if="mode === 'video'" class="animate-fade-in space-y-3">
         <label class="block text-sm font-medium text-slate-300 mb-2">
-          Video File <span class="text-brand-400">*</span>
+          Video File <span class="text-retro-cyan">*</span>
         </label>
 
         <!-- Library Video Selected Badge -->
         <div v-if="libraryVideo"
-          class="flex items-center gap-3 bg-brand-900/30 border border-brand-700/50 rounded-xl p-3">
-          <div class="w-8 h-8 rounded-lg bg-brand-600/30 flex items-center justify-center flex-shrink-0">
-            <svg class="w-4 h-4 text-brand-400" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          class="flex items-center gap-3 bg-brand-900/30 border border-brand-700/50 rounded-none p-3">
+          <div class="w-8 h-8 rounded-none bg-retro-magenta text-black/30 flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-retro-cyan" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-white font-medium truncate">{{ libraryVideo.name }}</p>
+            <p class="text-sm text-slate-100 font-medium truncate">{{ libraryVideo.name }}</p>
             <p class="text-xs text-slate-400">{{ formatSize(libraryVideo.size) }} · Dari Library</p>
           </div>
           <button type="button" @click="clearLibraryVideo"
@@ -195,7 +195,7 @@
         <div v-else>
           <div
             id="drop-zone"
-            class="relative border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer"
+            class="relative border-2 border-dashed rounded-none transition-all duration-200 cursor-pointer"
             :class="[
               isDragging
                 ? 'border-brand-400 bg-brand-900/20'
@@ -216,8 +216,8 @@
             />
             <div class="py-10 px-6 flex flex-col items-center gap-3 text-center">
               <template v-if="!selectedFile">
-                <div class="w-14 h-14 rounded-2xl bg-slate-700 flex items-center justify-center">
-                  <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="w-14 h-14 rounded-none bg-slate-700 flex items-center justify-center">
+                  <svg class="w-7 h-7 text-retro-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                       d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
@@ -228,7 +228,7 @@
                 </div>
               </template>
               <template v-else>
-                <div class="w-14 h-14 rounded-2xl bg-green-900/40 flex items-center justify-center">
+                <div class="w-14 h-14 rounded-none bg-green-900/40 flex items-center justify-center">
                   <svg class="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                   </svg>
@@ -253,7 +253,7 @@
           <button
             type="button"
             id="pick-library-btn"
-            class="w-full mt-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-slate-600 hover:border-brand-500 text-slate-300 hover:text-white text-sm transition-all bg-slate-800/40 hover:bg-slate-800"
+            class="w-full mt-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-none border border-slate-600 hover:border-brand-500 text-slate-300 hover:text-slate-100 text-sm transition-all bg-slate-800/40 hover:bg-slate-800"
             @click="showLibraryPicker = true"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -270,23 +270,23 @@
         <div class="flex items-center justify-between">
           <div class="flex flex-col">
             <label for="prompt" class="text-sm font-semibold text-slate-200">
-              Script Editor <span class="text-brand-400">*</span>
+              Script Editor <span class="text-retro-cyan">*</span>
             </label>
             <span class="text-[11px] text-slate-500">Koreksi skrip AI sesuai kebutuhanmu sebelum TTS</span>
           </div>
           <div class="flex items-center gap-2">
-            <div class="flex items-center gap-1 px-2 py-1 bg-brand-900/30 border border-brand-700/50 rounded-md">
-              <span class="text-[10px] font-bold text-brand-400 uppercase tracking-wider">Estimasi</span>
+            <div class="flex items-center gap-1 px-2 py-1 bg-brand-900/30 border border-brand-700/50 rounded-none">
+              <span class="text-[10px] font-bold text-retro-cyan uppercase tracking-wider">Estimasi</span>
               <span class="text-xs font-mono text-brand-200">± {{ estimatedDuration }} Detik</span>
             </div>
-            <span class="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded-md">{{ prompt.length }} Chars</span>
+            <span class="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded-none">{{ prompt.length }} Chars</span>
           </div>
         </div>
         <textarea
           id="prompt"
           v-model="prompt"
           rows="5"
-          class="input-field resize-none border-brand-900/20 focus:border-brand-500/50 bg-slate-800/20"
+          class="input-retro resize-none border-brand-900/20 focus:border-brand-500/50 bg-slate-800/20"
           placeholder="Skrip akan otomatis terisi setelah generate hook di atas, atau tulis sendiri di sini..."
         ></textarea>
         <p v-if="errors.prompt" class="mt-2 text-sm text-red-400">{{ errors.prompt }}</p>
@@ -295,7 +295,7 @@
       <!-- Voice Model -->
       <div>
         <label for="voice-model" class="block text-sm font-medium text-slate-300 mb-2">Voice Model</label>
-        <select id="voice-model" v-model="voiceModel" class="input-field">
+        <select id="voice-model" v-model="voiceModel" class="input-retro">
           <option v-for="v in voiceOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
         </select>
       </div>
@@ -311,7 +311,7 @@
             v-for="m in durationModes"
             :key="m.value"
             type="button"
-            class="flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 transition-all duration-150 text-center"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
             :class="durationMode === m.value
               ? 'border-brand-500 bg-brand-900/40 text-brand-300'
               : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
@@ -325,7 +325,7 @@
       </div>
 
       <!-- Submit -->
-      <button id="submit-btn" type="submit" class="btn-primary w-full text-base py-4" :disabled="isLoading">
+      <button id="submit-btn" type="submit" class="btn-retro w-full text-base py-4" :disabled="isLoading">
         <svg v-if="isLoading" class="w-5 h-5 animate-spin-slow" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -343,16 +343,16 @@
           <span>{{ loadingMessage }}</span>
           <span class="font-mono">{{ progressPercent }}%</span>
         </div>
-        <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+        <div class="w-full bg-slate-700 rounded-none h-2 overflow-hidden">
           <div
-            class="h-2 rounded-full bg-gradient-to-r from-brand-500 to-brand-400 transition-all duration-700"
+            class="h-2 rounded-none bg-gradient-to-r from-brand-500 to-brand-400 transition-all duration-700"
             :style="{ width: progressPercent + '%' }"
           ></div>
         </div>
       </div>
 
       <!-- Error -->
-      <div v-if="serverError" class="flex items-start gap-3 bg-red-900/30 border border-red-700/50 rounded-xl p-4">
+      <div v-if="serverError" class="flex items-start gap-3 bg-red-900/30 border border-red-700/50 rounded-none p-4">
         <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -364,24 +364,24 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          Result Card
     ════════════════════════════════════════════════════════════════════════ -->
-    <div v-if="outputVideoUrl || outputAudioUrl" id="result-section" class="glass-card p-6 sm:p-8 space-y-5 animate-fade-in">
+    <div v-if="outputVideoUrl || outputAudioUrl" id="result-section" class="retro-box p-6 sm:p-8 space-y-5 animate-fade-in">
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
+        <div class="w-8 h-8 rounded-none bg-green-500/20 flex items-center justify-center">
           <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-white">
+        <h3 class="text-lg font-semibold text-slate-100">
           {{ outputVideoUrl ? 'Video kamu sudah siap! 🎉' : 'Audio kamu sudah siap! 🎙️' }}
         </h3>
       </div>
 
       <!-- Video Result -->
-      <video v-if="outputVideoUrl" id="output-video" :src="outputVideoUrl" controls class="w-full rounded-xl bg-black max-h-[480px]"></video>
+      <video v-if="outputVideoUrl" id="output-video" :src="outputVideoUrl" controls class="w-full rounded-none bg-black max-h-[480px]"></video>
       
       <!-- Audio Result -->
-      <div v-if="outputAudioUrl && !outputVideoUrl" class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 flex flex-col items-center gap-4">
-        <div class="w-16 h-16 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-400 animate-pulse">
+      <div v-if="outputAudioUrl && !outputVideoUrl" class="bg-slate-800/50 p-6 rounded-none border border-slate-700 flex flex-col items-center gap-4">
+        <div class="w-16 h-16 rounded-none bg-retro-cyan text-black/20 flex items-center justify-center text-retro-cyan animate-pulse">
           <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
           </svg>
@@ -390,7 +390,7 @@
         <p class="text-slate-400 text-xs">Voiceover generated successfully.</p>
       </div>
 
-      <a id="download-btn" :href="outputVideoUrl || outputAudioUrl" :download="outputVideoUrl ? 'affiliate_video.mp4' : 'voiceover.mp3'" class="btn-primary w-full text-center">
+      <a id="download-btn" :href="outputVideoUrl || outputAudioUrl" :download="outputVideoUrl ? 'affiliate_video.mp4' : 'voiceover.mp3'" class="btn-retro w-full text-center">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -398,7 +398,7 @@
         Download {{ outputVideoUrl ? 'Video' : 'Audio' }}
       </a>
 
-      <button id="reset-btn" type="button" class="btn-secondary w-full" @click="reset">
+      <button id="reset-btn" type="button" class="btn-retro-secondary w-full" @click="reset">
         Buat {{ outputVideoUrl ? 'Video' : 'Audio' }} Lainnya
       </button>
     </div>
@@ -410,12 +410,12 @@
   ════════════════════════════════════════════════════════════════════════ -->
   <Teleport to="body">
     <div v-if="showLibraryPicker"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
       @click.self="showLibraryPicker = false">
-      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 space-y-4 animate-fade-in shadow-2xl max-h-[80vh] flex flex-col">
+      <div class="bg-slate-900 border border-slate-700 rounded-none w-full max-w-2xl p-6 space-y-4 animate-fade-in shadow-2xl max-h-[80vh] flex flex-col">
         <div class="flex items-center justify-between">
-          <h3 class="text-white font-semibold">📂 Pilih Video dari Library</h3>
-          <button @click="showLibraryPicker = false" class="text-slate-400 hover:text-white p-1">
+          <h3 class="text-slate-100 font-semibold">📂 Pilih Video dari Library</h3>
+          <button @click="showLibraryPicker = false" class="text-slate-400 hover:text-slate-100 p-1">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -426,11 +426,11 @@
         <div v-else-if="libraryItems.length === 0" class="py-8 text-center">
           <p class="text-slate-400">Library kosong.</p>
           <router-link to="/library" @click="showLibraryPicker = false"
-            class="text-brand-400 text-sm hover:underline">Upload video dulu →</router-link>
+            class="text-retro-cyan text-sm hover:underline">Upload video dulu →</router-link>
         </div>
         <div v-else class="overflow-y-auto flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 pr-1">
           <div v-for="vid in libraryItems" :key="vid.id"
-            class="cursor-pointer rounded-xl border-2 border-slate-700 hover:border-brand-500 overflow-hidden transition-all group"
+            class="cursor-pointer rounded-none border-2 border-slate-700 hover:border-brand-500 overflow-hidden transition-all group"
             @click="pickLibraryVideo(vid)">
             <div class="aspect-[9/16] bg-slate-800 relative overflow-hidden">
               <video :src="API_BASE_URL + vid.video_url" class="w-full h-full object-cover"
@@ -440,7 +440,7 @@
               <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-all"></div>
             </div>
             <div class="p-2">
-              <p class="text-xs text-white font-medium line-clamp-1">{{ vid.original_name }}</p>
+              <p class="text-xs text-slate-100 font-medium line-clamp-1">{{ vid.original_name }}</p>
               <p class="text-[10px] text-slate-500">{{ formatSize(vid.size) }}</p>
             </div>
           </div>

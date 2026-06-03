@@ -3,8 +3,8 @@
 
     <!-- Hero -->
     <div class="text-center space-y-2">
-      <h2 class="text-3xl sm:text-4xl font-bold text-white">
-        📂 Video <span class="text-brand-400">Library</span>
+      <h2 class="text-3xl sm:text-4xl font-bold text-slate-100">
+        📂 Video <span class="text-retro-cyan">Library</span>
       </h2>
       <p class="text-slate-400 max-w-xl mx-auto text-sm sm:text-base">
         Simpan video raw sekali, pakai berkali-kali. Tidak perlu upload ulang setiap sesi.
@@ -12,15 +12,15 @@
     </div>
 
     <!-- Upload Card -->
-    <div class="glass-card p-6 sm:p-8 space-y-5">
+    <div class="retro-box p-6 sm:p-8 space-y-5">
       <div class="flex items-center gap-2">
-        <span class="w-7 h-7 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">+</span>
-        <h3 class="text-base font-semibold text-white">Upload Video ke Library</h3>
+        <span class="w-7 h-7 rounded-none bg-retro-magenta text-black text-slate-100 text-sm font-bold flex items-center justify-center flex-shrink-0">+</span>
+        <h3 class="text-base font-semibold text-slate-100">Upload Video ke Library</h3>
       </div>
 
       <div
         id="library-drop-zone"
-        class="relative border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer"
+        class="relative border-2 border-dashed rounded-none transition-all duration-200 cursor-pointer"
         :class="isDragging
           ? 'border-brand-400 bg-brand-900/20'
           : 'border-slate-600 hover:border-brand-500 bg-slate-800/30'"
@@ -38,8 +38,8 @@
         />
         <div class="py-8 px-6 flex flex-col items-center gap-3 text-center">
           <template v-if="!uploadFile">
-            <div class="w-14 h-14 rounded-2xl bg-slate-700 flex items-center justify-center">
-              <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="w-14 h-14 rounded-none bg-slate-700 flex items-center justify-center">
+              <svg class="w-7 h-7 text-retro-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                   d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
@@ -50,7 +50,7 @@
             </div>
           </template>
           <template v-else>
-            <div class="w-14 h-14 rounded-2xl bg-green-900/40 flex items-center justify-center">
+            <div class="w-14 h-14 rounded-none bg-green-900/40 flex items-center justify-center">
               <svg class="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
@@ -71,7 +71,7 @@
         <input
           v-model="displayName"
           type="text"
-          class="input-field"
+          class="input-retro"
           :placeholder="uploadFile.name"
         />
       </div>
@@ -80,7 +80,7 @@
       <button
         type="button"
         id="library-upload-btn"
-        class="btn-primary w-full"
+        class="btn-retro w-full"
         :disabled="!uploadFile || isUploading"
         @click="uploadToLibrary"
       >
@@ -95,20 +95,20 @@
       </button>
 
       <!-- Upload error -->
-      <div v-if="uploadError" class="flex items-start gap-2 bg-red-900/30 border border-red-700/50 rounded-xl p-3">
+      <div v-if="uploadError" class="flex items-start gap-2 bg-red-900/30 border border-red-700/50 rounded-none p-3">
         <p class="text-red-300 text-xs">{{ uploadError }}</p>
       </div>
     </div>
 
     <!-- Library Grid -->
-    <div class="glass-card p-6 sm:p-8 space-y-5">
+    <div class="retro-box p-6 sm:p-8 space-y-5">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <h3 class="text-base font-semibold text-white">Video Tersimpan</h3>
-          <span class="text-xs bg-slate-700 text-slate-300 rounded-full px-2 py-0.5">{{ videos.length }}</span>
+          <h3 class="text-base font-semibold text-slate-100">Video Tersimpan</h3>
+          <span class="text-xs bg-slate-700 text-slate-300 rounded-none px-2 py-0.5">{{ videos.length }}</span>
         </div>
         <button @click="fetchLibrary" :disabled="isLoading"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg transition-all">
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-none transition-all">
           <svg class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
@@ -117,7 +117,7 @@
       </div>
 
       <!-- Error -->
-      <div v-if="fetchError" class="text-red-300 text-sm bg-red-900/20 border border-red-700/40 rounded-xl p-3">
+      <div v-if="fetchError" class="text-red-300 text-sm bg-red-900/20 border border-red-700/40 rounded-none p-3">
         ⚠️ {{ fetchError }}
       </div>
 
@@ -133,20 +133,22 @@
         <div
           v-for="vid in videos"
           :key="vid.id"
-          class="group relative bg-slate-800/60 rounded-xl border border-slate-700 overflow-hidden hover:border-brand-500/60 transition-all duration-200"
+          class="group relative bg-slate-800/60 rounded-none border border-slate-700 overflow-hidden hover:border-brand-500/60 transition-all duration-200"
         >
           <!-- Video thumbnail / preview -->
           <div class="aspect-[9/16] bg-slate-900 flex items-center justify-center relative overflow-hidden">
             <video
               :src="API_BASE + vid.video_url"
-              class="w-full h-full object-cover"
+              class="w-full h-full object-cover cursor-pointer"
               muted
+              playsinline
               preload="metadata"
-              @mouseenter="e => e.target.play()"
-              @mouseleave="e => { e.target.pause(); e.target.currentTime = 0 }"
+              @mouseenter="e => { if(window.innerWidth > 768) e.target.play() }"
+              @mouseleave="e => { if(window.innerWidth > 768) { e.target.pause(); e.target.currentTime = 0; } }"
+              @click="e => e.target.paused ? e.target.play() : e.target.pause()"
             ></video>
-            <div class="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-all flex items-center justify-center">
-              <svg class="w-10 h-10 text-white/70 group-hover:text-white/0 transition-all" fill="currentColor" viewBox="0 0 24 24">
+            <div class="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-all flex items-center justify-center pointer-events-none">
+              <svg class="w-10 h-10 text-slate-100/70 group-hover:text-slate-100/0 transition-all drop-shadow-md" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z"/>
               </svg>
             </div>
@@ -154,7 +156,7 @@
 
           <!-- Info -->
           <div class="p-3 space-y-2">
-            <p class="text-white text-xs font-semibold leading-tight line-clamp-2">{{ vid.original_name }}</p>
+            <p class="text-slate-100 text-xs font-semibold leading-tight line-clamp-2">{{ vid.original_name }}</p>
             <div class="flex items-center justify-between text-[10px] text-slate-500">
               <span>{{ formatSize(vid.size) }}</span>
               <span>{{ formatAge(vid.uploaded_at) }}</span>
@@ -165,13 +167,13 @@
               <button
                 id="library-use-btn"
                 @click="useVideo(vid)"
-                class="flex-1 text-[10px] font-bold py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-all text-center"
+                class="flex-1 text-[10px] font-bold py-1.5 rounded-none bg-retro-magenta text-black hover:bg-retro-cyan text-black text-slate-100 transition-all text-center"
               >
                 ✅ Pakai
               </button>
               <button
                 @click="confirmDelete(vid)"
-                class="p-1.5 rounded-lg bg-slate-700 hover:bg-red-800 text-slate-300 hover:text-white transition-all"
+                class="p-1.5 rounded-none bg-slate-700 hover:bg-red-800 text-slate-300 hover:text-slate-100 transition-all"
                 title="Hapus"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -191,10 +193,30 @@
 
     <!-- Toast -->
     <div v-if="toast.show"
-      class="fixed bottom-6 right-6 px-4 py-2.5 rounded-xl shadow-xl text-sm font-medium z-50 animate-fade-in"
-      :class="toast.type === 'success' ? 'bg-green-700 text-white' : 'bg-red-700 text-white'">
+      class="fixed bottom-6 right-6 px-4 py-2.5 rounded-none shadow-xl text-sm font-medium z-50 animate-fade-in"
+      :class="toast.type === 'success' ? 'bg-green-700 text-slate-100' : 'bg-red-700 text-slate-100'">
       {{ toast.msg }}
     </div>
+
+    <!-- Delete Modal -->
+    <Teleport to="body">
+      <div v-if="deleteModal.show"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
+        @click.self="deleteModal.show = false">
+        <div class="retro-box w-full max-w-sm p-6 space-y-4 animate-fade-in shadow-2xl">
+          <h3 class="text-retro-cyan font-bold font-retro text-2xl uppercase">⚠️ Konfirmasi</h3>
+          <p class="text-slate-300 text-sm">Hapus <span class="font-bold text-retro-magenta">{{ deleteModal.vid?.original_name }}</span> dari library? Aksi ini tidak bisa dibatalkan.</p>
+          <div class="flex gap-3 pt-2">
+            <button @click="executeDelete" class="flex-1 btn-retro-secondary">
+              Ya, Hapus
+            </button>
+            <button @click="deleteModal.show = false" class="flex-1 btn-retro">
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -303,14 +325,24 @@ function useVideo(vid) {
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────
-async function confirmDelete(vid) {
-  if (!confirm(`Hapus "${vid.original_name}" dari library? Aksi ini tidak bisa dibatalkan.`)) return
+const deleteModal = reactive({ show: false, vid: null })
+
+function confirmDelete(vid) {
+  deleteModal.vid = vid
+  deleteModal.show = true
+}
+
+async function executeDelete() {
+  const vid = deleteModal.vid
+  if (!vid) return
   try {
     await axios.delete(`${API_BASE}/api/library/${vid.id}`)
     videos.value = videos.value.filter(v => v.id !== vid.id)
     showToast('🗑️ Video dihapus dari library.', 'success')
   } catch (err) {
     showToast(err.response?.data?.detail || 'Gagal menghapus video.', 'error')
+  } finally {
+    deleteModal.show = false
   }
 }
 

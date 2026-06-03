@@ -5,26 +5,26 @@
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-white">📋 Hook Generation Log</h1>
+          <h1 class="text-2xl font-bold text-slate-100">📋 Hook Generation Log</h1>
           <p class="text-slate-400 text-sm mt-1">Riwayat semua prompt yang di-generate oleh AI</p>
         </div>
         <div class="flex gap-2 flex-wrap">
           <button @click="refreshLogs" :disabled="loading"
-            class="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-medium transition-all">
+            class="flex items-center gap-2 px-4 py-2 rounded-none bg-slate-700 hover:bg-slate-600 text-sm font-medium transition-all">
             <svg class="w-4 h-4" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
             Refresh
           </button>
           <a :href="`${apiBase}/api/logs/download`" target="_blank"
-            class="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-700 hover:bg-green-600 text-sm font-medium transition-all">
+            class="flex items-center gap-2 px-4 py-2 rounded-none bg-green-700 hover:bg-green-600 text-sm font-medium transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
             Download CSV
           </a>
           <button @click="confirmClear"
-            class="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-800 hover:bg-red-700 text-sm font-medium transition-all">
+            class="flex items-center gap-2 px-4 py-2 rounded-none bg-red-800 hover:bg-red-700 text-sm font-medium transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
             </svg>
@@ -35,44 +35,44 @@
 
       <!-- Stats -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="glass-card p-4 text-center">
-          <p class="text-3xl font-bold text-brand-400">{{ totalLogs }}</p>
+        <div class="retro-box p-4 text-center">
+          <p class="text-3xl font-bold text-retro-cyan">{{ totalLogs }}</p>
           <p class="text-xs text-slate-400 mt-1">Total Log</p>
         </div>
-        <div class="glass-card p-4 text-center">
+        <div class="retro-box p-4 text-center">
           <p class="text-3xl font-bold text-purple-400">{{ tiktokCount }}</p>
           <p class="text-xs text-slate-400 mt-1">TikTok</p>
         </div>
-        <div class="glass-card p-4 text-center">
+        <div class="retro-box p-4 text-center">
           <p class="text-3xl font-bold text-orange-400">{{ shopeeCount }}</p>
           <p class="text-xs text-slate-400 mt-1">Shopee</p>
         </div>
-        <div class="glass-card p-4 text-center">
+        <div class="retro-box p-4 text-center">
           <p class="text-3xl font-bold text-green-400">{{ uniqueProducts }}</p>
           <p class="text-xs text-slate-400 mt-1">Produk Unik</p>
         </div>
       </div>
 
       <!-- Tab Switcher -->
-      <div class="flex bg-slate-800/60 p-1 rounded-xl border border-slate-700 w-fit">
+      <div class="flex bg-slate-800/60 p-1 rounded-none border border-slate-700 w-fit">
         <button
           @click="activeTab = 'table'"
-          class="px-5 py-2 rounded-lg text-sm font-medium transition-all"
-          :class="activeTab === 'table' ? 'bg-brand-600 text-white shadow' : 'text-slate-400 hover:text-white'"
+          class="px-5 py-2 rounded-none text-sm font-medium transition-all"
+          :class="activeTab === 'table' ? 'bg-retro-magenta text-black text-slate-100 shadow' : 'text-slate-400 hover:text-slate-100'"
         >
           📋 Tabel Log
         </button>
         <button
           @click="activeTab = 'analytics'; renderCharts()"
-          class="px-5 py-2 rounded-lg text-sm font-medium transition-all"
-          :class="activeTab === 'analytics' ? 'bg-brand-600 text-white shadow' : 'text-slate-400 hover:text-white'"
+          class="px-5 py-2 rounded-none text-sm font-medium transition-all"
+          :class="activeTab === 'analytics' ? 'bg-retro-magenta text-black text-slate-100 shadow' : 'text-slate-400 hover:text-slate-100'"
         >
           📈 Analytics
         </button>
       </div>
 
       <!-- Error -->
-      <div v-if="error" class="glass-card p-4 border-red-700/60 text-red-300 text-sm">
+      <div v-if="error" class="retro-box p-4 border-red-700/60 text-red-300 text-sm">
         ⚠️ {{ error }}
       </div>
 
@@ -84,10 +84,10 @@
             v-model="search"
             type="text"
             placeholder="Cari produk atau skrip..."
-            class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
+            class="flex-1 bg-slate-800 border border-slate-700 rounded-none px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
           />
           <select v-model="filterPlatform"
-            class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-brand-500">
+            class="bg-slate-800 border border-slate-700 rounded-none px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-brand-500">
             <option value="">Semua Platform</option>
             <option value="tiktok">TikTok</option>
             <option value="shopee">Shopee</option>
@@ -95,14 +95,14 @@
         </div>
 
         <!-- Empty State -->
-        <div v-if="!loading && filteredLogs.length === 0" class="glass-card p-12 text-center">
+        <div v-if="!loading && filteredLogs.length === 0" class="retro-box p-12 text-center">
           <p class="text-4xl mb-3">📭</p>
           <p class="text-slate-400">Belum ada log yang tersimpan.</p>
           <p class="text-slate-500 text-sm mt-1">Generate hook pertama kamu di halaman utama!</p>
         </div>
 
         <!-- Table -->
-        <div v-if="filteredLogs.length > 0" class="glass-card overflow-hidden">
+        <div v-if="filteredLogs.length > 0" class="retro-box overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
@@ -126,18 +126,18 @@
                     <span :class="log.platform === 'tiktok'
                       ? 'bg-purple-900/50 text-purple-300 border border-purple-700/40'
                       : 'bg-orange-900/50 text-orange-300 border border-orange-700/40'"
-                      class="px-2 py-0.5 rounded-full text-xs font-medium">
+                      class="px-2 py-0.5 rounded-none text-xs font-medium">
                       {{ log.platform === 'tiktok' ? '🎵 TikTok' : '🛒 Shopee' }}
                     </span>
                   </td>
                   <td class="px-4 py-3 text-slate-300 text-xs capitalize">{{ log.variation }}</td>
-                  <td class="px-4 py-3 text-white font-medium">{{ log.input_product }}</td>
+                  <td class="px-4 py-3 text-slate-100 font-medium">{{ log.input_product }}</td>
                   <td class="px-4 py-3 text-slate-300 text-xs leading-relaxed max-w-sm">
-                    <p class="line-clamp-2 cursor-pointer hover:text-white transition-colors"
+                    <p class="line-clamp-2 cursor-pointer hover:text-slate-100 transition-colors"
                        @click="openScriptModal(log.output_script, log.input_product)">
                       {{ log.output_script }}
                     </p>
-                    <button class="mt-1 text-brand-400 hover:text-brand-300 text-[10px] font-medium"
+                    <button class="mt-1 text-retro-cyan hover:text-brand-300 text-[10px] font-medium"
                       @click="openScriptModal(log.output_script, log.input_product)">
                       Lihat selengkapnya →
                     </button>
@@ -145,7 +145,7 @@
                   <td class="px-4 py-3 text-center">
                     <div class="flex flex-col gap-1.5 items-center justify-center">
                       <a v-if="log.video_url" :href="apiBase + log.video_url" target="_blank"
-                         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-[10px] font-medium text-white transition-colors w-full justify-center"
+                         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-none bg-green-700 hover:bg-green-600 text-[10px] font-medium text-slate-100 transition-colors w-full justify-center"
                          title="Tonton / Download Video">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -154,7 +154,7 @@
                         Video
                       </a>
                       <a v-if="log.audio_url" :href="apiBase + log.audio_url" target="_blank"
-                         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-[10px] font-medium text-white transition-colors w-full justify-center"
+                         class="inline-flex items-center gap-1 px-3 py-1.5 rounded-none bg-retro-magenta text-black hover:bg-retro-cyan text-black text-[10px] font-medium text-slate-100 transition-colors w-full justify-center"
                          title="Dengarkan / Download MP3">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -166,7 +166,7 @@
                   </td>
                   <td class="px-4 py-3">
                     <button @click="copyScript(log.output_script)"
-                      class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition-all"
+                      class="opacity-0 group-hover:opacity-100 p-1.5 rounded-none bg-slate-700 hover:bg-slate-600 transition-all"
                       title="Copy skrip">
                       <svg class="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
@@ -186,12 +186,12 @@
             </p>
             <div class="flex gap-1">
               <button @click="currentPage--" :disabled="currentPage === 1"
-                class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs disabled:opacity-40 transition-all">
+                class="px-3 py-1.5 rounded-none bg-slate-700 hover:bg-slate-600 text-xs disabled:opacity-40 transition-all">
                 ← Prev
               </button>
               <span class="px-3 py-1.5 text-xs text-slate-400">{{ currentPage }} / {{ totalPages }}</span>
               <button @click="currentPage++" :disabled="currentPage === totalPages"
-                class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs disabled:opacity-40 transition-all">
+                class="px-3 py-1.5 rounded-none bg-slate-700 hover:bg-slate-600 text-xs disabled:opacity-40 transition-all">
                 Next →
               </button>
             </div>
@@ -201,7 +201,7 @@
 
       <!-- ════════════════════ TAB: ANALYTICS ════════════════════ -->
       <template v-if="activeTab === 'analytics'">
-        <div v-if="logs.length === 0" class="glass-card p-12 text-center">
+        <div v-if="logs.length === 0" class="retro-box p-12 text-center">
           <p class="text-4xl mb-3">📊</p>
           <p class="text-slate-400">Belum ada data untuk dianalisa.</p>
           <p class="text-slate-500 text-sm mt-1">Generate beberapa hook terlebih dahulu!</p>
@@ -211,15 +211,15 @@
           <!-- Row 1: Bar + Donut -->
           <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
             <!-- Bar Chart: Top Products -->
-            <div class="glass-card p-5 lg:col-span-3">
-              <h3 class="text-sm font-semibold text-white mb-4">🏆 Top 10 Produk Paling Sering Di-Generate</h3>
+            <div class="retro-box p-5 lg:col-span-3">
+              <h3 class="text-sm font-semibold text-slate-100 mb-4">🏆 Top 10 Produk Paling Sering Di-Generate</h3>
               <div class="relative h-64">
                 <canvas id="chart-top-products"></canvas>
               </div>
             </div>
             <!-- Donut Chart: Variation Distribution -->
-            <div class="glass-card p-5 lg:col-span-2">
-              <h3 class="text-sm font-semibold text-white mb-4">🎯 Distribusi Variasi Hook</h3>
+            <div class="retro-box p-5 lg:col-span-2">
+              <h3 class="text-sm font-semibold text-slate-100 mb-4">🎯 Distribusi Variasi Hook</h3>
               <div class="relative h-64">
                 <canvas id="chart-variations"></canvas>
               </div>
@@ -227,8 +227,8 @@
           </div>
 
           <!-- Row 2: Line Chart -->
-          <div class="glass-card p-5">
-            <h3 class="text-sm font-semibold text-white mb-4">📅 Aktivitas Generate (30 Hari Terakhir)</h3>
+          <div class="retro-box p-5">
+            <h3 class="text-sm font-semibold text-slate-100 mb-4">📅 Aktivitas Generate (30 Hari Terakhir)</h3>
             <div class="relative h-56">
               <canvas id="chart-daily-activity"></canvas>
             </div>
@@ -236,28 +236,28 @@
 
           <!-- Row 3: Platform Breakdown -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="glass-card p-5">
-              <h3 class="text-sm font-semibold text-white mb-3">🎵 TikTok — Variasi Terpopuler</h3>
+            <div class="retro-box p-5">
+              <h3 class="text-sm font-semibold text-slate-100 mb-3">🎵 TikTok — Variasi Terpopuler</h3>
               <div class="space-y-2">
                 <div v-for="item in tiktokVariationRanking" :key="item.key"
                   class="flex items-center gap-3">
                   <span class="text-xs text-slate-400 w-24 truncate capitalize">{{ item.key }}</span>
-                  <div class="flex-1 bg-slate-700 rounded-full h-2">
-                    <div class="h-2 rounded-full bg-purple-500 transition-all duration-700"
+                  <div class="flex-1 bg-slate-700 rounded-none h-2">
+                    <div class="h-2 rounded-none bg-purple-500 transition-all duration-700"
                       :style="{ width: item.pct + '%' }"></div>
                   </div>
                   <span class="text-xs text-slate-300 w-8 text-right">{{ item.count }}</span>
                 </div>
               </div>
             </div>
-            <div class="glass-card p-5">
-              <h3 class="text-sm font-semibold text-white mb-3">🛒 Shopee — Variasi Terpopuler</h3>
+            <div class="retro-box p-5">
+              <h3 class="text-sm font-semibold text-slate-100 mb-3">🛒 Shopee — Variasi Terpopuler</h3>
               <div class="space-y-2">
                 <div v-for="item in shopeeVariationRanking" :key="item.key"
                   class="flex items-center gap-3">
                   <span class="text-xs text-slate-400 w-24 truncate capitalize">{{ item.key }}</span>
-                  <div class="flex-1 bg-slate-700 rounded-full h-2">
-                    <div class="h-2 rounded-full bg-orange-500 transition-all duration-700"
+                  <div class="flex-1 bg-slate-700 rounded-none h-2">
+                    <div class="h-2 rounded-none bg-orange-500 transition-all duration-700"
                       :style="{ width: item.pct + '%' }"></div>
                   </div>
                   <span class="text-xs text-slate-300 w-8 text-right">{{ item.count }}</span>
@@ -274,34 +274,34 @@
   <!-- ════════ Script Modal ════════ -->
   <Teleport to="body">
     <div v-if="scriptModal.open"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
       @click.self="scriptModal.open = false">
-      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4 animate-fade-in shadow-2xl">
+      <div class="bg-slate-900 border border-slate-700 rounded-none w-full max-w-lg p-6 space-y-4 animate-fade-in shadow-2xl">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <h3 class="text-white font-semibold">📝 Skrip Lengkap</h3>
+            <h3 class="text-slate-100 font-semibold">📝 Skrip Lengkap</h3>
             <p class="text-slate-400 text-xs mt-0.5">{{ scriptModal.product }}</p>
           </div>
           <button @click="scriptModal.open = false"
-            class="text-slate-400 hover:text-white transition-colors p-1">
+            class="text-slate-400 hover:text-slate-100 transition-colors p-1">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
             </svg>
           </button>
         </div>
-        <div class="bg-slate-800 rounded-xl p-4 text-sm text-slate-200 leading-relaxed max-h-64 overflow-y-auto">
+        <div class="bg-slate-800 rounded-none p-4 text-sm text-slate-200 leading-relaxed max-h-64 overflow-y-auto">
           {{ scriptModal.script }}
         </div>
         <div class="flex gap-2">
           <button @click="copyScript(scriptModal.script)"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-sm font-medium transition-all">
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-none bg-retro-magenta text-black hover:bg-retro-cyan text-black text-sm font-medium transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
             </svg>
             Copy Skrip
           </button>
           <button @click="scriptModal.open = false"
-            class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm transition-all">
+            class="px-4 py-2 rounded-none bg-slate-700 hover:bg-slate-600 text-sm transition-all">
             Tutup
           </button>
         </div>
@@ -311,9 +311,29 @@
 
   <!-- Copy toast -->
   <div v-if="copied"
-    class="fixed bottom-6 right-6 bg-green-700 text-white text-sm px-4 py-2 rounded-xl shadow-lg animate-fade-in z-50">
+    class="fixed bottom-6 right-6 bg-green-700 text-slate-100 text-sm px-4 py-2 rounded-none shadow-lg animate-fade-in z-50">
     ✅ Skrip disalin ke clipboard!
   </div>
+
+  <!-- Delete Modal -->
+  <Teleport to="body">
+    <div v-if="deleteModal.show"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80"
+      @click.self="deleteModal.show = false">
+      <div class="retro-box w-full max-w-sm p-6 space-y-4 animate-fade-in shadow-2xl">
+        <h3 class="text-retro-cyan font-bold font-retro text-2xl uppercase">⚠️ Peringatan</h3>
+        <p class="text-slate-300 text-sm">Reset semua log? Aksi ini akan menghapus riwayat secara permanen.</p>
+        <div class="flex gap-3 pt-2">
+          <button @click="executeClear" class="flex-1 btn-retro-secondary">
+            Reset
+          </button>
+          <button @click="deleteModal.show = false" class="flex-1 btn-retro">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -589,13 +609,20 @@ async function copyScript(script) {
   setTimeout(() => { copied.value = false }, 2500)
 }
 
-async function confirmClear() {
-  if (!confirm('Reset semua log? Aksi ini tidak bisa dibatalkan.')) return
+const deleteModal = reactive({ show: false })
+
+function confirmClear() {
+  deleteModal.show = true
+}
+
+async function executeClear() {
   try {
     await axios.delete(`${API_BASE}/api/logs/clear`)
     logs.value = []
   } catch {
     error.value = 'Gagal reset log.'
+  } finally {
+    deleteModal.show = false
   }
 }
 </script>
