@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import VideoEditor from '../components/VideoEditor.vue'
 import LogViewer from '../components/LogViewer.vue'
+import VideoLibrary from '../components/VideoLibrary.vue'
 import NotFound from '../components/NotFound.vue'
 
 const routes = [
@@ -13,6 +14,11 @@ const routes = [
     path: '/logs',
     name: 'Logs',
     component: LogViewer
+  },
+  {
+    path: '/library',
+    name: 'Library',
+    component: VideoLibrary
   },
   {
     path: '/:pathMatch(.*)*',

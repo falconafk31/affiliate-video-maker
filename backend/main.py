@@ -1,6 +1,7 @@
 import os
 import csv
 import uuid
+import json
 import shutil
 import asyncio
 import logging
@@ -23,7 +24,7 @@ import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
@@ -44,8 +45,20 @@ VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 AUDIOS_DIR = BASE_DIR / "static" / "audios"
 AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {".mp4"}
+ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi"}
 API_TIMEOUT_SECONDS = 120
+
+# ── Video Library ─────────────────────────────────────────────────────────────
+LIBRARY_DIR       = BASE_DIR / "static" / "library"
+LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+LIBRARY_META_FILE = BASE_DIR / "logs" / "video_library.json"
+LIBRARY_LOCK      = threading.Lock()
+VIDEO_LIBRARY_RETENTION_DAYS = int(os.getenv("VIDEO_LIBRARY_RETENTION_DAYS", "30"))
+
+# ── SSE Job Store (in-memory) ─────────────────────────────────────────────────
+# Keys: job_id (str)  Values: dict with status/progress/message/video_url/audio_url/error
+jobs: dict = {}
+JOBS_LOCK = threading.Lock()
 
 # ── Hook Generation Log (CSV) ─────────────────────────────────────────────────
 LOGS_DIR   = BASE_DIR / "logs"
@@ -90,6 +103,40 @@ def append_hook_log(platform: str, variation: str, product: str, script: str) ->
     return log_id
 
 
+def update_hook_log_script(log_id: str, new_script: str):
+    if not log_id:
+        return
+    try:
+        with LOG_LOCK:
+            rows = []
+            updated = False
+            if LOG_FILE.exists():
+                with open(LOG_FILE, "r", encoding="utf-8-sig") as f:
+                    reader = csv.reader(f)
+                    header = next(reader, None)
+                    if header:
+                        rows.append(header)
+                        try:
+                            log_id_idx = header.index("log_id")
+                            script_idx = header.index("output_script")
+                        except ValueError:
+                            return
+                        for row in reader:
+                            if len(row) > log_id_idx and row[log_id_idx] == log_id:
+                                if len(row) > script_idx:
+                                    row[script_idx] = new_script
+                                    updated = True
+                            rows.append(row)
+                
+                if updated:
+                    with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
+                        csv.writer(f).writerows(rows)
+                    logger.info("Hook log updated for log_id: %s with edited script", log_id)
+    except Exception as e:
+        logger.error("Failed to update hook log script: %s", e)
+
+
+
 def clean_old_videos():
     now = time.time()
     for f in VIDEOS_DIR.glob("*.mp4"):
@@ -114,7 +161,17 @@ async def lifespan(app: FastAPI):
     TEMP_DIR.mkdir(exist_ok=True)
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    # Bersihkan orphaned temp job dirs yang lebih dari 2 jam (dari crash sebelumnya)
+    now = time.time()
+    for d in TEMP_DIR.iterdir():
+        try:
+            if d.is_dir() and (now - d.stat().st_mtime) > 7200:
+                shutil.rmtree(d, ignore_errors=True)
+                logger.info("Startup cleanup: removed orphaned temp dir %s", d.name)
+        except Exception:
+            pass
     yield
 
 
@@ -141,6 +198,7 @@ def health_check():
 
 app.mount("/api/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 app.mount("/api/audios", StaticFiles(directory=AUDIOS_DIR), name="audios")
+app.mount("/api/lib-static", StaticFiles(directory=LIBRARY_DIR), name="library_videos")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,6 +232,81 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         except Exception as e:
             logger.error("Edge-TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara Edge-TTS: {str(e)}")
+
+    if voice_model.startswith("openai-audio"):
+        voice_part = "shimmer"
+        if ":" in voice_model:
+            voice_part = voice_model.split(":")[1]
+
+        logger.info("Generating voice via Pollinations openai-audio | voice: %s, prompt: %s...", voice_part, prompt[:30])
+        headers = {
+            "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        
+        system_prompt = (
+            "Tugas utama Anda adalah membaca ulang teks dari user kata-demi-kata dengan PERSIS, LENGKAP, dan VERBATIM. "
+            "JANGAN menjawab pertanyaan, JANGAN merespon secara percakapan, JANGAN menambahkan, mengubah, atau mengurangi kata apa pun. "
+            "Bacakan dengan nada suara yang natural, ramah, dan santai seperti narator profesional Indonesia yang berbicara ke teman dekat. "
+            "Cukup suarakan teks input tersebut secara persis."
+        )
+
+        payload = {
+            "model": "openai-audio",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "modalities": ["text", "audio"],
+            "audio": {
+                "voice": voice_part,
+                "format": "mp3"
+            }
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{POLLINATIONS_API_URL.rstrip('/')}/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=90.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                if "choices" in data and len(data["choices"]) > 0:
+                    message = data["choices"][0]["message"]
+                    if "audio" in message and "data" in message["audio"]:
+                        import base64
+                        audio_bytes = base64.b64decode(message["audio"]["data"])
+                        with open(output_path, "wb") as f:
+                            f.write(audio_bytes)
+                        
+                        saved = output_path.stat().st_size
+                        logger.info("openai-audio saved: %s (%d bytes)", output_path.name, saved)
+                        if saved < 512:
+                            raise HTTPException(status_code=502, detail="API returned empty audio file.")
+                        return
+                    else:
+                        raise HTTPException(status_code=502, detail="No audio data returned in API response.")
+                else:
+                    raise HTTPException(status_code=502, detail="No choices returned in API response.")
+            except httpx.TimeoutException:
+                logger.error("Pollinations openai-audio API timeout (90s)")
+                raise HTTPException(status_code=504, detail="AI Voice sedang sibuk (Timeout 90s). Coba lagi.")
+            except httpx.HTTPStatusError as e:
+                logger.error("Pollinations openai-audio HTTP Error: %s", e)
+                raise HTTPException(status_code=e.response.status_code, detail=f"API Voice Error: {e.response.text}")
+            except Exception as e:
+                logger.error("Unexpected openai-audio Error: %s", e)
+                raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
 
     logger.info("Calling Pollinations TTS (ASYNC) | prompt: %s...", prompt[:30])
 
@@ -217,6 +350,7 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         except Exception as e:
             logger.error("Unexpected TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
+
 
 
 
@@ -338,6 +472,7 @@ async def process_video(
         await asyncio.to_thread(merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait)
 
         if log_id:
+            update_hook_log_script(log_id, prompt_text)
             shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
             logger.info("Persisted video for log_id: %s", log_id)
 
@@ -702,6 +837,8 @@ async def generate_audio_only(
         await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         target_id = log_id if log_id else job_id
+        if log_id:
+            update_hook_log_script(log_id, prompt_text)
         shutil.copy(voice_path, AUDIOS_DIR / f"{target_id}.mp3")
         logger.info("Persisted audio for id: %s", target_id)
 
@@ -755,6 +892,309 @@ def clear_logs():
             csv.writer(f).writerow(LOG_HEADER)
     logger.info("Hook logs cleared.")
     return {"status": "ok", "message": "Log file has been cleared."}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VIDEO LIBRARY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _read_library_meta() -> list:
+    if not LIBRARY_META_FILE.exists():
+        return []
+    try:
+        with open(LIBRARY_META_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _write_library_meta(entries: list) -> None:
+    LIBRARY_META_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(LIBRARY_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
+def _clean_library_old_files():
+    """Remove library entries and files older than VIDEO_LIBRARY_RETENTION_DAYS."""
+    cutoff = time.time() - VIDEO_LIBRARY_RETENTION_DAYS * 86400
+    with LIBRARY_LOCK:
+        entries = _read_library_meta()
+        kept = []
+        for entry in entries:
+            vid_path = LIBRARY_DIR / entry["filename"]
+            if entry.get("uploaded_at", 0) < cutoff:
+                try:
+                    vid_path.unlink(missing_ok=True)
+                    logger.info("Library auto-deleted: %s", entry["filename"])
+                except Exception:
+                    pass
+            else:
+                kept.append(entry)
+        if len(kept) != len(entries):
+            _write_library_meta(kept)
+
+
+@app.post("/api/library/upload")
+async def library_upload(
+    background_tasks: BackgroundTasks,
+    video: UploadFile = File(...),
+    display_name: str = Form(""),
+):
+    """Upload a video to the persistent library for re-use."""
+    suffix = Path(video.filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".avi"}:
+        suffix = ".mp4"
+
+    lib_id = uuid.uuid4().hex
+    filename = f"{lib_id}{suffix}"
+    dest_path = LIBRARY_DIR / filename
+
+    try:
+        with open(dest_path, "wb") as buf:
+            shutil.copyfileobj(video.file, buf)
+        size = dest_path.stat().st_size
+        if size < 1024:
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="File video terlalu kecil.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan video: {e}")
+
+    original_name = display_name.strip() or video.filename or filename
+    entry = {
+        "id": lib_id,
+        "filename": filename,
+        "original_name": original_name,
+        "size": size,
+        "uploaded_at": time.time(),
+        "video_url": f"/api/lib-static/{filename}",
+    }
+
+    with LIBRARY_LOCK:
+        entries = _read_library_meta()
+        entries.append(entry)
+        _write_library_meta(entries)
+
+    background_tasks.add_task(_clean_library_old_files)
+    logger.info("Library upload: %s (%d bytes)", original_name, size)
+    return {"status": "success", "video": entry}
+
+
+@app.get("/api/library")
+def library_list():
+    """Return all library videos that still exist on disk."""
+    with LIBRARY_LOCK:
+        entries = _read_library_meta()
+    result = []
+    for entry in entries:
+        vid_path = LIBRARY_DIR / entry["filename"]
+        if vid_path.exists():
+            result.append(entry)
+    # Newest first
+    result.sort(key=lambda e: e.get("uploaded_at", 0), reverse=True)
+    return {"total": len(result), "videos": result}
+
+
+@app.delete("/api/library/{video_id}")
+def library_delete(video_id: str):
+    """Delete a video from the library."""
+    with LIBRARY_LOCK:
+        entries = _read_library_meta()
+        new_entries = [e for e in entries if e["id"] != video_id]
+        deleted = [e for e in entries if e["id"] == video_id]
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Video tidak ditemukan di library.")
+        for e in deleted:
+            try:
+                (LIBRARY_DIR / e["filename"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        _write_library_meta(new_entries)
+    logger.info("Library deleted: %s", video_id)
+    return {"status": "ok", "deleted_id": video_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SSE JOB SYSTEM — Non-blocking video render with real-time progress
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _set_job(job_id: str, **kwargs):
+    with JOBS_LOCK:
+        if job_id not in jobs:
+            jobs[job_id] = {}
+        jobs[job_id].update(kwargs)
+
+
+def _cleanup_old_jobs():
+    """Remove job entries older than 1 hour."""
+    cutoff = time.time() - 3600
+    with JOBS_LOCK:
+        stale = [jid for jid, j in jobs.items() if j.get("created_at", 0) < cutoff]
+        for jid in stale:
+            del jobs[jid]
+    if stale:
+        logger.info("Cleaned up %d stale job(s)", len(stale))
+
+
+async def _run_video_job(
+    job_id: str,
+    raw_video_path: Path,
+    voice_path: Path,
+    output_path: Path,
+    job_dir: Path,
+    prompt_text: str,
+    voice_model: str,
+    duration_mode: str,
+    portrait: bool,
+    log_id: str | None,
+):
+    """Background coroutine that executes the full render pipeline with SSE status updates."""
+    try:
+        # Stage 1: Generate voice
+        _set_job(job_id, status="generating_voice", progress=10, message="🎙️ Membuat AI voiceover...")
+        await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+
+        # Stage 2: Merge video
+        _set_job(job_id, status="merging_video", progress=45, message="🎬 Menggabungkan video + audio...")
+        await asyncio.to_thread(merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait)
+
+        # Stage 3: Persist
+        _set_job(job_id, status="saving", progress=85, message="💾 Menyimpan hasil render...")
+        video_url = None
+        if log_id:
+            update_hook_log_script(log_id, prompt_text)
+            shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
+            video_url = f"/api/videos/{log_id}.mp4"
+            logger.info("SSE job persisted video for log_id: %s", log_id)
+
+        _set_job(
+            job_id,
+            status="done",
+            progress=100,
+            message="✅ Selesai!",
+            video_url=video_url,
+        )
+        cleanup_files(job_dir)
+        clean_old_videos()
+
+    except HTTPException as e:
+        _set_job(job_id, status="error", progress=0, message="❌ Gagal", error=e.detail)
+        cleanup_files(job_dir)
+    except Exception as e:
+        logger.error("SSE job %s failed: %s", job_id, traceback.format_exc())
+        _set_job(job_id, status="error", progress=0, message="❌ Gagal", error=str(e))
+        cleanup_files(job_dir)
+
+
+@app.post("/api/jobs/submit")
+async def submit_job(
+    video: UploadFile = File(...),
+    prompt_text: str = Form(...),
+    voice_model: str = Form("id-ID-GadisNeural"),
+    duration_mode: str = Form("auto"),
+    force_portrait: str = Form("true"),
+    log_id: str = Form(None),
+    library_video_id: str = Form(None),
+):
+    """
+    Submit a video render job. Returns job_id immediately.
+    Client should then poll GET /api/jobs/{job_id}/stream for SSE progress.
+    """
+    job_id = uuid.uuid4().hex
+    job_dir = TEMP_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine video source: upload or library
+    if library_video_id:
+        # Use video from library
+        with LIBRARY_LOCK:
+            entries = _read_library_meta()
+        lib_entry = next((e for e in entries if e["id"] == library_video_id), None)
+        if not lib_entry:
+            raise HTTPException(status_code=404, detail="Video library tidak ditemukan.")
+        lib_path = LIBRARY_DIR / lib_entry["filename"]
+        if not lib_path.exists():
+            raise HTTPException(status_code=404, detail="File video library sudah dihapus.")
+        raw_video_path = job_dir / lib_path.name
+        shutil.copy(lib_path, raw_video_path)
+    else:
+        suffix = Path(video.filename).suffix.lower()
+        if suffix not in {".mp4", ".mov", ".avi"}:
+            suffix = ".mp4"
+        raw_video_path = job_dir / f"raw_video{suffix}"
+        with open(raw_video_path, "wb") as buf:
+            shutil.copyfileobj(video.file, buf)
+        if raw_video_path.stat().st_size < 1024:
+            cleanup_files(job_dir)
+            raise HTTPException(status_code=400, detail="File video terlalu kecil.")
+
+    voice_path  = job_dir / "temp_voice.mp3"
+    output_path = job_dir / "final_output.mp4"
+
+    if duration_mode not in ("auto", "loop_video", "trim_audio"):
+        duration_mode = "auto"
+    portrait = force_portrait.lower() not in ("false", "0", "no")
+
+    _set_job(job_id,
+        status="queued",
+        progress=5,
+        message="⏳ Job diterima, mempersiapkan...",
+        video_url=None,
+        audio_url=None,
+        error=None,
+        created_at=time.time(),
+    )
+
+    # Fire-and-forget background task
+    asyncio.create_task(_run_video_job(
+        job_id, raw_video_path, voice_path, output_path,
+        job_dir, prompt_text, voice_model, duration_mode, portrait, log_id,
+    ))
+
+    logger.info("SSE job submitted: %s | voice=%s | mode=%s", job_id, voice_model, duration_mode)
+    return {"status": "queued", "job_id": job_id}
+
+
+@app.get("/api/jobs/{job_id}/stream")
+async def stream_job_status(job_id: str):
+    """
+    SSE endpoint. Streams job status updates until done or error.
+    Client: const es = new EventSource('/api/jobs/{job_id}/stream')
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job tidak ditemukan.")
+
+    async def event_generator():
+        last_status = None
+        while True:
+            with JOBS_LOCK:
+                job = dict(jobs.get(job_id, {}))
+
+            payload = json.dumps(job)
+            yield f"data: {payload}\n\n"
+
+            if job.get("status") in ("done", "error"):
+                # Schedule cleanup after a short delay to allow last event delivery
+                asyncio.create_task(_delayed_job_cleanup(job_id, delay=30))
+                break
+
+            await asyncio.sleep(0.8)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+async def _delayed_job_cleanup(job_id: str, delay: int = 30):
+    await asyncio.sleep(delay)
+    with JOBS_LOCK:
+        jobs.pop(job_id, None)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────

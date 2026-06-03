@@ -14,10 +14,12 @@
 | Feature | Description |
 |---|---|
 | 🤖 **AI Hook Generator** | Auto-generate Indonesian TikTok & Shopee affiliate hooks from a product name |
-| 🎙️ **AI Voiceover** | Powered by Pollinations AI — natural-sounding Indonesian voiceovers |
+| 🎙️ **Dual AI Voiceover** | **Edge-TTS** (natural Indonesian female Gadis voice) + **Pollinations GPT-Audio** (`openai-audio` model with optimized indonesian affiliate narrator prompt) |
 | 🎬 **Video Merge** | MoviePy + FFmpeg: 4x faster rendering with optimized threads and `ultrafast` preset |
+| ⚡ **Live Sync Editor** | Log CSV updates automatically if user edits script text; results card automatically resets on settings change |
+| 🔄 **Cache-Busting** | Timestamps appended to URLs to prevent browser from playing cached/old voice files when regenerating |
 | 🕒 **7-Day Video Log** | Rendered videos are saved and accessible via the UI for 7 days (auto-delete) |
-| 📊 **Log Prompt UI** | View generation history and watch/download rendered videos directly |
+| 📊 **Log Prompt UI** | View generation history, play/download rendered videos, and see exact edited scripts |
 | 🔁 **Smart Duration Sync** | 3 modes: Auto (smart), Loop Video, Trim Audio |
 | 🛠️ **MCP Server** | Exposes `generate_ai_voice` & `merge_video_and_voice` as MCP tools |
 
@@ -138,11 +140,11 @@ Rendered videos are saved in `backend/static/videos/`. To keep the server storag
 |---|---|---|---|---|
 | `video` | File (.mp4) | ✅ | — | Raw video clip |
 | `prompt_text` | string | ✅ | — | Voiceover script |
-| `log_id` | string | ❌ | — | UUID from generation log (links video to history) |
-| `voice_model` | string | ❌ | `whisper` | Pollinations voice model |
+| `log_id` | string | ❌ | — | UUID from generation log (links video to history and updates edited scripts) |
+| `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS) or `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations) |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
 
-**Response:** Binary MP4 file (`video/mp4`)
+**Response:** JSON format `{ "status": "success", "video_url": "/api/videos/{log_id}.mp4", "log_id": log_id }` or binary based on mode.
 
 ---
 

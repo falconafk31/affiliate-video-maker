@@ -25,6 +25,12 @@
             🎬 Editor
           </router-link>
           <router-link
+            to="/library"
+            active-class="bg-brand-600 text-white shadow"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">
+            📂 Library
+          </router-link>
+          <router-link
             to="/logs"
             active-class="bg-brand-600 text-white shadow"
             class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-white">

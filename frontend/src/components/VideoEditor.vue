@@ -170,59 +170,97 @@
       </div>
 
       <!-- Drag & Drop Video Upload — Only if mode is 'video' -->
-      <div v-if="mode === 'video'" class="animate-fade-in">
+      <div v-if="mode === 'video'" class="animate-fade-in space-y-3">
         <label class="block text-sm font-medium text-slate-300 mb-2">
           Video File <span class="text-brand-400">*</span>
         </label>
-        <div
-          id="drop-zone"
-          class="relative border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer"
-          :class="[
-            isDragging
-              ? 'border-brand-400 bg-brand-900/20'
-              : 'border-slate-600 hover:border-brand-500 bg-slate-800/30',
-          ]"
-          @dragover.prevent="isDragging = true"
-          @dragleave.prevent="isDragging = false"
-          @drop.prevent="onDrop"
-          @click="$refs.fileInput.click()"
-        >
-          <input
-            ref="fileInput"
-            id="file-input"
-            type="file"
-            accept=".mp4,video/mp4"
-            class="hidden"
-            @change="onFileChange"
-          />
-          <div class="py-10 px-6 flex flex-col items-center gap-3 text-center">
-            <template v-if="!selectedFile">
-              <div class="w-14 h-14 rounded-2xl bg-slate-700 flex items-center justify-center">
-                <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-              </div>
-              <div>
-                <p class="text-slate-300 font-medium">Drag &amp; drop file .mp4 kamu di sini</p>
-                <p class="text-slate-500 text-sm">atau klik untuk pilih file</p>
-              </div>
-            </template>
-            <template v-else>
-              <div class="w-14 h-14 rounded-2xl bg-green-900/40 flex items-center justify-center">
-                <svg class="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <div>
-                <p class="text-slate-200 font-semibold truncate max-w-xs">{{ selectedFile.name }}</p>
-                <p class="text-slate-500 text-sm">{{ formatSize(selectedFile.size) }}</p>
-              </div>
-              <button type="button" class="text-xs text-red-400 hover:text-red-300 transition-colors" @click.stop="clearFile">
-                Hapus
-              </button>
-            </template>
+
+        <!-- Library Video Selected Badge -->
+        <div v-if="libraryVideo"
+          class="flex items-center gap-3 bg-brand-900/30 border border-brand-700/50 rounded-xl p-3">
+          <div class="w-8 h-8 rounded-lg bg-brand-600/30 flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-brand-400" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
           </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-white font-medium truncate">{{ libraryVideo.name }}</p>
+            <p class="text-xs text-slate-400">{{ formatSize(libraryVideo.size) }} · Dari Library</p>
+          </div>
+          <button type="button" @click="clearLibraryVideo"
+            class="text-xs text-red-400 hover:text-red-300 transition-colors px-2 py-1 rounded">
+            Hapus
+          </button>
+        </div>
+
+        <!-- Upload area (show when no library video) -->
+        <div v-else>
+          <div
+            id="drop-zone"
+            class="relative border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer"
+            :class="[
+              isDragging
+                ? 'border-brand-400 bg-brand-900/20'
+                : 'border-slate-600 hover:border-brand-500 bg-slate-800/30',
+            ]"
+            @dragover.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="onDrop"
+            @click="$refs.fileInput.click()"
+          >
+            <input
+              ref="fileInput"
+              id="file-input"
+              type="file"
+              accept=".mp4,video/mp4"
+              class="hidden"
+              @change="onFileChange"
+            />
+            <div class="py-10 px-6 flex flex-col items-center gap-3 text-center">
+              <template v-if="!selectedFile">
+                <div class="w-14 h-14 rounded-2xl bg-slate-700 flex items-center justify-center">
+                  <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                </div>
+                <div>
+                  <p class="text-slate-300 font-medium">Drag &amp; drop file .mp4 kamu di sini</p>
+                  <p class="text-slate-500 text-sm">atau klik untuk pilih file</p>
+                </div>
+              </template>
+              <template v-else>
+                <div class="w-14 h-14 rounded-2xl bg-green-900/40 flex items-center justify-center">
+                  <svg class="w-7 h-7 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <p class="text-slate-200 font-semibold truncate max-w-xs">{{ selectedFile.name }}</p>
+                  <p class="text-slate-500 text-sm">{{ formatSize(selectedFile.size) }}</p>
+                </div>
+                <button type="button" class="text-xs text-red-400 hover:text-red-300 transition-colors" @click.stop="clearFile">
+                  Hapus
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Pick from Library link -->
+          <div class="flex items-center gap-3 mt-3">
+            <div class="flex-1 h-px bg-slate-700"></div>
+            <span class="text-xs text-slate-500">atau</span>
+            <div class="flex-1 h-px bg-slate-700"></div>
+          </div>
+          <button
+            type="button"
+            id="pick-library-btn"
+            class="w-full mt-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-slate-600 hover:border-brand-500 text-slate-300 hover:text-white text-sm transition-all bg-slate-800/40 hover:bg-slate-800"
+            @click="showLibraryPicker = true"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/>
+            </svg>
+            📂 Pilih dari Video Library
+          </button>
         </div>
         <p v-if="errors.video" class="mt-2 text-sm text-red-400">{{ errors.video }}</p>
       </div>
@@ -298,6 +336,21 @@
         {{ isLoading ? loadingMessage : (mode === 'video' ? '🎬 Buat Video Sekarang' : '🎙️ Generate Audio MP3') }}
       </button>
 
+      <!-- SSE Progress Bar (only for video mode with SSE) -->
+      <div v-if="isLoading && mode === 'video' && progressPercent > 0"
+        class="space-y-2 animate-fade-in">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>{{ loadingMessage }}</span>
+          <span class="font-mono">{{ progressPercent }}%</span>
+        </div>
+        <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+          <div
+            class="h-2 rounded-full bg-gradient-to-r from-brand-500 to-brand-400 transition-all duration-700"
+            :style="{ width: progressPercent + '%' }"
+          ></div>
+        </div>
+      </div>
+
       <!-- Error -->
       <div v-if="serverError" class="flex items-start gap-3 bg-red-900/30 border border-red-700/50 rounded-xl p-4">
         <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -351,10 +404,56 @@
     </div>
 
   </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Library Picker Mini Modal
+  ════════════════════════════════════════════════════════════════════════ -->
+  <Teleport to="body">
+    <div v-if="showLibraryPicker"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      @click.self="showLibraryPicker = false">
+      <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 space-y-4 animate-fade-in shadow-2xl max-h-[80vh] flex flex-col">
+        <div class="flex items-center justify-between">
+          <h3 class="text-white font-semibold">📂 Pilih Video dari Library</h3>
+          <button @click="showLibraryPicker = false" class="text-slate-400 hover:text-white p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div v-if="libraryPickerLoading" class="py-8 text-center text-slate-400">Memuat library...</div>
+        <div v-else-if="libraryItems.length === 0" class="py-8 text-center">
+          <p class="text-slate-400">Library kosong.</p>
+          <router-link to="/library" @click="showLibraryPicker = false"
+            class="text-brand-400 text-sm hover:underline">Upload video dulu →</router-link>
+        </div>
+        <div v-else class="overflow-y-auto flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 pr-1">
+          <div v-for="vid in libraryItems" :key="vid.id"
+            class="cursor-pointer rounded-xl border-2 border-slate-700 hover:border-brand-500 overflow-hidden transition-all group"
+            @click="pickLibraryVideo(vid)">
+            <div class="aspect-[9/16] bg-slate-800 relative overflow-hidden">
+              <video :src="API_BASE_URL + vid.video_url" class="w-full h-full object-cover"
+                muted preload="metadata"
+                @mouseenter="e => e.target.play()"
+                @mouseleave="e => { e.target.pause(); e.target.currentTime = 0 }"></video>
+              <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 transition-all"></div>
+            </div>
+            <div class="p-2">
+              <p class="text-xs text-white font-medium line-clamp-1">{{ vid.original_name }}</p>
+              <p class="text-[10px] text-slate-500">{{ formatSize(vid.size) }}</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-500 text-center">Klik video untuk memilih</p>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -375,6 +474,15 @@ const outputAudioUrl = ref('')
 const durationMode   = ref('auto')
 const mode           = ref('video') // 'video' | 'audio'
 
+// SSE Progress
+const progressPercent = ref(0)
+
+// Library state
+const libraryVideo       = ref(null)   // { id, name, size, url } picked from library
+const showLibraryPicker  = ref(false)
+const libraryItems       = ref([])
+const libraryPickerLoading = ref(false)
+
 // Hook generator state
 const productName      = ref('')
 const hookType         = ref('tiktok')     // 'tiktok' | 'shopee'
@@ -383,7 +491,25 @@ const hookGenerated    = ref(false)
 const isGenerating     = ref(false)
 const hookError        = ref('')
 
+
 const errors = reactive({ video: '', prompt: '' })
+
+// Check sessionStorage for library video on mount (set by VideoLibrary.vue)
+onMounted(() => {
+  const stored = sessionStorage.getItem('library_video')
+  if (stored) {
+    try {
+      libraryVideo.value = JSON.parse(stored)
+      sessionStorage.removeItem('library_video')
+    } catch {}
+  }
+})
+
+// Clear output results when key inputs change to prevent playing stale/unsynced audio/video
+watch([prompt, voiceModel, durationMode, selectedFile, mode, libraryVideo], () => {
+  outputVideoUrl.value = ''
+  outputAudioUrl.value = ''
+})
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const estimatedDuration = computed(() => {
@@ -418,6 +544,12 @@ const durationModes = [
 // ── Voice Options ─────────────────────────────────────────────────────────────
 const voiceOptions = [
   { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
+  { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
+  { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
+  { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },
+  { value: 'openai-audio:onyx', label: 'GPT Audio — Laki-laki, Onyx (Pollinations)' },
+  { value: 'openai-audio:echo', label: 'GPT Audio — Laki-laki, Echo (Pollinations)' },
+  { value: 'openai-audio:fable', label: 'GPT Audio — Laki-laki, Fable (Pollinations)' },
 ]
 
 // ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
@@ -513,7 +645,17 @@ function validateFile(file) {
 }
 
 function validateForm() {
-  let valid = mode.value === 'video' ? validateFile(selectedFile.value) : true
+  let valid = true
+  if (mode.value === 'video') {
+    if (!libraryVideo.value && !selectedFile.value) {
+      errors.video = 'Pilih file video atau pilih dari Library.'
+      valid = false
+    } else if (selectedFile.value) {
+      valid = validateFile(selectedFile.value)
+    } else {
+      errors.video = ''
+    }
+  }
   if (!prompt.value.trim()) {
     errors.prompt = 'Skrip voiceover tidak boleh kosong. Generate hook dulu atau tulis sendiri.'
     valid = false
@@ -545,6 +687,34 @@ function clearFile() {
   if (fileInput.value) fileInput.value.value = ''
 }
 
+// Library picker helpers
+function clearLibraryVideo() {
+  libraryVideo.value = null
+}
+
+async function openLibraryPicker() {
+  showLibraryPicker.value = true
+  libraryPickerLoading.value = true
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/library`)
+    libraryItems.value = res.data.videos
+  } catch {
+    libraryItems.value = []
+  } finally {
+    libraryPickerLoading.value = false
+  }
+}
+
+watch(showLibraryPicker, (val) => {
+  if (val) openLibraryPicker()
+})
+
+function pickLibraryVideo(vid) {
+  libraryVideo.value = { id: vid.id, name: vid.original_name, size: vid.size, url: API_BASE_URL + vid.video_url }
+  showLibraryPicker.value = false
+  errors.video = ''
+}
+
 // ── Submit ────────────────────────────────────────────────────────────────────
 async function handleSubmit() {
   if (!validateForm()) return
@@ -552,56 +722,80 @@ async function handleSubmit() {
   isLoading.value = true
   serverError.value = ''
   outputVideoUrl.value = ''
-
-  const messages = [
-    'Sedang membuat AI voiceover…',
-    'Menggabungkan audio dengan video…',
-    'Hampir selesai, rendering video akhir…',
-  ]
-  let msgIdx = 0
-  loadingMessage.value = 'Mempersiapakan upload...'
-  let msgInterval = null
-
-  const startMessages = () => {
-    loadingMessage.value = messages[msgIdx]
-    msgInterval = setInterval(() => {
-      msgIdx = (msgIdx + 1) % messages.length
-      loadingMessage.value = messages[msgIdx]
-    }, 4000)
-  }
+  outputAudioUrl.value = ''
+  progressPercent.value = 0
 
   try {
     const formData = new FormData()
-    if (mode.value === 'video') formData.append('video', selectedFile.value)
-    formData.append('prompt_text', prompt.value.trim())
-    formData.append('voice_model', voiceModel.value)
-    if (mode.value === 'video') formData.append('duration_mode', durationMode.value)
-    if (logId.value) formData.append('log_id', logId.value)
 
-    const endpoint = mode.value === 'video' ? '/api/process-video' : '/api/generate-audio'
-    const response = await axios.post(`${API_BASE_URL}${endpoint}`, formData, {
-      timeout: 300000,
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (progressEvent) => {
-        if (mode.value === 'audio') {
-          loadingMessage.value = 'Sedang membuat AI voiceover…'
-          return
-        }
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-        if (percentCompleted < 100) {
-          loadingMessage.value = `Mengunggah video: ${percentCompleted}%...`
-        } else if (percentCompleted === 100 && !msgInterval) {
-          startMessages()
-        }
-      }
-    })
-
-    const data = response.data
-    
     if (mode.value === 'video') {
-      outputVideoUrl.value = API_BASE_URL + data.video_url
+      // === SSE 2-Step Flow for video render ===
+      formData.append('prompt_text', prompt.value.trim())
+      formData.append('voice_model', voiceModel.value)
+      formData.append('duration_mode', durationMode.value)
+      if (logId.value) formData.append('log_id', logId.value)
+
+      if (libraryVideo.value) {
+        // Use library video — send a dummy empty file + library_video_id
+        const emptyBlob = new Blob([''], { type: 'video/mp4' })
+        formData.append('video', emptyBlob, 'placeholder.mp4')
+        formData.append('library_video_id', libraryVideo.value.id)
+      } else {
+        formData.append('video', selectedFile.value)
+      }
+
+      loadingMessage.value = '⏳ Mengirim job...'
+
+      // Step 1: Submit job
+      const submitRes = await axios.post(`${API_BASE_URL}/api/jobs/submit`, formData, {
+        timeout: 60000,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const jobId = submitRes.data.job_id
+
+      // Step 2: Subscribe SSE stream
+      await new Promise((resolve, reject) => {
+        const es = new EventSource(`${API_BASE_URL}/api/jobs/${jobId}/stream`)
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            progressPercent.value = data.progress || 0
+            loadingMessage.value  = data.message  || 'Memproses...'
+
+            if (data.status === 'done') {
+              es.close()
+              const timestamp = '?t=' + Date.now()
+              outputVideoUrl.value = API_BASE_URL + data.video_url + timestamp
+              resolve()
+            } else if (data.status === 'error') {
+              es.close()
+              reject(new Error(data.error || 'Server error'))
+            }
+          } catch (parseErr) {
+            es.close()
+            reject(parseErr)
+          }
+        }
+        es.onerror = () => {
+          es.close()
+          reject(new Error('Koneksi SSE terputus. Coba lagi.'))
+        }
+      })
+
     } else {
-      outputAudioUrl.value = API_BASE_URL + data.audio_url
+      // === Audio-only (unchanged, direct axios) ===
+      formData.append('prompt_text', prompt.value.trim())
+      formData.append('voice_model', voiceModel.value)
+      if (logId.value) formData.append('log_id', logId.value)
+      loadingMessage.value = 'Sedang membuat AI voiceover…'
+
+      const response = await axios.post(`${API_BASE_URL}/api/generate-audio`, formData, {
+        timeout: 300000,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const data = response.data
+      const timestamp = '?t=' + Date.now()
+      outputAudioUrl.value = API_BASE_URL + data.audio_url + timestamp
     }
 
     setTimeout(() => {
@@ -620,10 +814,9 @@ async function handleSubmit() {
     } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
       serverError.value = 'Request timeout. Video mungkin terlalu panjang atau server AI sedang sibuk.'
     } else {
-      serverError.value = 'Tidak bisa terhubung ke backend. Pastikan server berjalan di ' + API_BASE_URL
+      serverError.value = err.message || 'Tidak bisa terhubung ke backend. Pastikan server berjalan di ' + API_BASE_URL
     }
   } finally {
-    clearInterval(msgInterval)
     isLoading.value = false
     loadingMessage.value = 'Memproses…'
   }
@@ -632,15 +825,17 @@ async function handleSubmit() {
 // ── Reset ─────────────────────────────────────────────────────────────────────
 function reset() {
   clearFile()
-  prompt.value        = ''
-  productName.value   = ''
-  voiceModel.value    = 'id-ID-GadisNeural'
-  durationMode.value  = 'auto'
-  hookGenerated.value = false
+  libraryVideo.value   = null
+  prompt.value         = ''
+  productName.value    = ''
+  voiceModel.value     = 'id-ID-GadisNeural'
+  durationMode.value   = 'auto'
+  hookGenerated.value  = false
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
-  serverError.value   = ''
-  errors.video        = ''
-  errors.prompt       = ''
+  serverError.value    = ''
+  errors.video         = ''
+  errors.prompt        = ''
+  progressPercent.value = 0
 }
 </script>
