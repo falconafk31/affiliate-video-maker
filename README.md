@@ -147,6 +147,7 @@ POLLINATIONS_API_URL=https://gen.pollinations.ai
 POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
 
 # Security Configuration
+# (Hash di bawah ini adalah untuk password: "admin")
 ADMIN_PASSWORD_HASH=$2b$12$R.3C7hN/2tq2WJ1F51M0QO.014v4N/M1L8.oP9wG2bZ9Z1P3G
 JWT_SECRET=rahasia123456789
 ```
