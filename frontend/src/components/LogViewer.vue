@@ -16,13 +16,13 @@
             </svg>
             Refresh
           </button>
-          <a :href="`${apiBase}/api/logs/download`" target="_blank"
+          <button @click="downloadCsv"
             class="flex items-center gap-2 px-4 py-2 rounded-none bg-green-700 hover:bg-green-600 text-sm font-medium transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
             Download CSV
-          </a>
+          </button>
           <button @click="confirmClear"
             class="flex items-center gap-2 px-4 py-2 rounded-none bg-red-800 hover:bg-red-700 text-sm font-medium transition-all">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -650,10 +650,29 @@ function openScriptModal(script, product) {
 }
 
 async function copyScript(script) {
-  await navigator.clipboard.writeText(script)
-  copied.value = true
-  if (scriptModal.open) scriptModal.open = false
-  setTimeout(() => { copied.value = false }, 2500)
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(script)
+    } else {
+      // Fallback for non-HTTPS environments (e.g. VPS IP)
+      const textArea = document.createElement("textarea")
+      textArea.value = script
+      textArea.style.top = "0"
+      textArea.style.left = "0"
+      textArea.style.position = "fixed"
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+    }
+    copied.value = true
+    if (scriptModal.open) scriptModal.open = false
+    setTimeout(() => { copied.value = false }, 2500)
+  } catch (err) {
+    console.error("Gagal menyalin teks:", err)
+    alert("Gagal menyalin skrip. Browser tidak mendukung fitur ini tanpa HTTPS.")
+  }
 }
 
 const deleteModal = reactive({ show: false })
@@ -670,6 +689,25 @@ async function executeClear() {
     error.value = 'Gagal reset log.'
   } finally {
     deleteModal.show = false
+  }
+}
+
+async function downloadCsv() {
+  try {
+    const res = await axios.get(`${API_BASE}/api/logs/download`, {
+      responseType: 'blob'
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'hook_logs.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Gagal mendownload CSV", err);
+    alert("Gagal mendownload CSV. Pastikan sesi login belum habis.");
   }
 }
 </script>
