@@ -24,7 +24,7 @@ import httpx
 import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Depends, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -39,7 +39,7 @@ load_dotenv()
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 JWT_SECRET = os.getenv("JWT_SECRET", "default_secret_if_not_set")
 ALGORITHM = "HS256"
-security = HTTPBearer()
+security = OAuth2PasswordBearer(tokenUrl="/api/docs-login")
 
 LOGIN_ATTEMPTS = {}  # { "ip_address": {"attempts": int, "locked_until": float} }
 LOCKOUT_TIME = 900   # 15 minutes
@@ -57,11 +57,11 @@ def create_access_token(data: dict) -> str:
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_current_user(token: str = Depends(security)):
     if not ADMIN_PASSWORD_HASH:
         return "admin" # Skip auth if not configured for dev (fallback)
     try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         return payload.get("sub")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -292,6 +292,12 @@ def login(request: Request, payload: LoginRequest):
         
         log_auth_attempt(ip, "FAILED")
         raise HTTPException(status_code=401, detail="Password salah")
+
+@app.post("/api/docs-login")
+def docs_login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    # Re-use the existing logic but map OAuth2 form data
+    login_req = LoginRequest(password=form_data.password)
+    return login(request, login_req)
 
 @app.get("/api/auth-logs")
 def get_auth_logs(current_user: str = Depends(get_current_user)):
@@ -548,6 +554,7 @@ async def process_video(
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
     log_id: str = Form(None),
+    current_user: str = Depends(get_current_user),
 ):
     suffix = Path(video.filename).suffix.lower()
     if suffix not in (".mp4", ".mov", ".avi"):
@@ -851,6 +858,7 @@ async def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
     hook_type: str    = Form("tiktok", description="Platform: tiktok atau shopee"),
     variation: str    = Form("viral",  description="Variasi hook style"),
+    current_user: str = Depends(get_current_user),
 ):
     if not product_name.strip():
         raise HTTPException(status_code=400, detail="product_name tidak boleh kosong.")
@@ -935,6 +943,7 @@ async def generate_audio_only(
     prompt_text: str = Form(...),
     voice_model: str = Form("whisper"),
     log_id: str      = Form(None),
+    current_user: str = Depends(get_current_user),
 ):
     job_id = str(uuid.uuid4())
     job_dir = TEMP_DIR / job_id
@@ -1046,6 +1055,7 @@ async def library_upload(
     background_tasks: BackgroundTasks,
     video: UploadFile = File(...),
     display_name: str = Form(""),
+    current_user: str = Depends(get_current_user),
 ):
     """Upload a video to the persistent library for re-use."""
     suffix = Path(video.filename).suffix.lower()
@@ -1198,13 +1208,14 @@ async def _run_video_job(
 
 @app.post("/api/jobs/submit")
 async def submit_job(
-    video: UploadFile = File(...),
+    video: UploadFile = File(None),
     prompt_text: str = Form(...),
     voice_model: str = Form("id-ID-GadisNeural"),
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
     log_id: str = Form(None),
     library_video_id: str = Form(None),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Submit a video render job. Returns job_id immediately.
