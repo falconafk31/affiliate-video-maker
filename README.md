@@ -37,13 +37,15 @@
 - **FastAPI** — REST API server (with GZipMiddleware)
 - **FFmpeg (Subprocess)** — Raw native video processing (Ultra-fast & RAM-efficient)
 - **Pollinations AI** — AI voiceover generation (no API cost for basic use; API key for credits)
+- **Security** — PyJWT for Token Auth & bcrypt for Hash checking
 - **Python-dotenv** — Environment configuration
 
 ### Frontend
 - **Vue.js 3** (Composition API)
 - **Vite** — Build tool
+- **Vue Router** — Routing with Keep-Alive state persistence
 - **Tailwind CSS** — Styling
-- **Axios** — HTTP client
+- **Axios** — HTTP client (with global interceptors)
 
 ---
 
@@ -54,13 +56,24 @@ affiliate-video-maker/
 ├── .gitignore
 ├── README.md
 ├── ecosystem.config.js          ← PM2 deployment config
+```text
+affiliate-video-maker/
+├── .gitignore
+├── README.md
+├── docker-compose.yml           ← Docker deployment orchestration
+├── DOCKER_INSTRUCTIONS.md       ← Docker deployment guide
+├── ecosystem.config.js          ← PM2 deployment config
 ├── backend/
-│   ├── .env                     ← GITIGNORED — copy from .env.example
+│   ├── .env                     ← GITIGNORED — Holds JWT Secret & Password Hash
 │   ├── .env.example
-│   ├── main.py                  ← FastAPI app (POST /api/process-video)
-│   ├── mcp_server.py            ← MCP tools server
+│   ├── main.py                  ← FastAPI app & Auth Routes
+│   ├── generate_hash.py         ← Script to generate bcrypt password hash
 │   ├── requirements.txt
-│   └── temp_processing/         ← GITIGNORED — auto-created at runtime
+│   ├── logs/
+│   │   ├── hook_logs.csv        ← CSV database for generated hooks
+│   │   └── login_logs.csv       ← CSV database for authentication attempts
+│   ├── static/                  ← Persistent Video & Audio library
+│   └── temp_processing/         ← Auto-created runtime temp folder
 └── frontend/
     ├── .env                     ← VITE_API_BASE_URL config
     ├── index.html
@@ -71,8 +84,13 @@ affiliate-video-maker/
         ├── main.js
         ├── style.css
         ├── App.vue
+        ├── router/
+        │   └── index.js         ← Route definitions & Auth guards
         └── components/
-            └── VideoEditor.vue  ← Main UI component
+            ├── Login.vue        ← 8-bit retro login page
+            ├── VideoEditor.vue  ← Main UI component (Editor)
+            ├── VideoLibrary.vue ← Video Library component
+            └── LogViewer.vue    ← Logs, Analytics & Security Logs
 ```
 
 ---
@@ -116,7 +134,25 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser. (Note: Backend must be running on port 8000).
+Open **http://localhost:5173** in your browser. (Note: Backend must be running on port 9000).
+
+---
+
+## 🔒 Security & Authentication
+
+Aplikasi ini dilengkapi sistem keamanan Single-Admin yang kuat:
+1. **Bcrypt Hash**: Password disimpan dalam `.env` (sebagai `ADMIN_PASSWORD_HASH`), jadi password asli tidak pernah bocor. Gunakan `python backend/generate_hash.py` untuk membuat Hash baru.
+2. **JWT Guard**: Seluruh API krusial dilindungi oleh *JSON Web Token* middleware.
+3. **Anti-Bruteforce**: IP Address akan otomatis diblokir selama 15 menit jika gagal login 5 kali berturut-turut.
+4. **Security Logs**: Halaman `LogViewer` mencatat semua aktivitas login (SUKSES/GAGAL/BLOKIR).
+
+---
+
+## 🐳 Docker Deployment
+
+Deployment ke VPS kini sangat mudah menggunakan Docker Compose. Sistem ini menjalankan Nginx (untuk frontend) dan Uvicorn (untuk backend) secara terisolasi.
+
+Baca panduan lengkapnya di 👉 **[DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS.md)**
 
 ---
 

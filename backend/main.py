@@ -23,13 +23,68 @@ import requests
 import httpx
 import time
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, BackgroundTasks, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+import bcrypt
+import jwt
 
 load_dotenv()
+
+# ── Security & Auth ───────────────────────────────────────────────────────────
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
+JWT_SECRET = os.getenv("JWT_SECRET", "default_secret_if_not_set")
+ALGORITHM = "HS256"
+security = HTTPBearer()
+
+LOGIN_ATTEMPTS = {}  # { "ip_address": {"attempts": int, "locked_until": float} }
+LOCKOUT_TIME = 900   # 15 minutes
+MAX_FAILED_ATTEMPTS = 5
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
+
+def create_access_token(data: dict) -> str:
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.utcnow().timestamp() + (24 * 3600)}) # 24 hours
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if not ADMIN_PASSWORD_HASH:
+        return "admin" # Skip auth if not configured for dev (fallback)
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+# ── Auth Logs (CSV) ───────────────────────────────────────────────────────────
+AUTH_LOG_FILE = Path(__file__).parent / "logs" / "login_logs.csv"
+def _ensure_auth_log():
+    if not AUTH_LOG_FILE.exists():
+        AUTH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(AUTH_LOG_FILE, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(["timestamp", "ip_address", "status"])
+
+_ensure_auth_log()
+
+def log_auth_attempt(ip_address: str, status: str):
+    try:
+        with open(AUTH_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ip_address, status])
+    except Exception as e:
+        logger.error(f"Failed to write auth log: {e}")
+
+class LoginRequest(BaseModel):
+    password: str
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLLINATIONS_API_URL = os.getenv("POLLINATIONS_API_URL", "https://gen.pollinations.ai")
@@ -199,6 +254,58 @@ def health_check():
 app.mount("/api/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 app.mount("/api/audios", StaticFiles(directory=AUDIOS_DIR), name="audios")
 app.mount("/api/lib-static", StaticFiles(directory=LIBRARY_DIR), name="library_videos")
+
+
+# ── Auth Endpoints ────────────────────────────────────────────────────────────
+@app.post("/api/login")
+def login(request: Request, payload: LoginRequest):
+    ip = request.client.host
+    now = time.time()
+    
+    # Check bruteforce lockout
+    if ip in LOGIN_ATTEMPTS:
+        if LOGIN_ATTEMPTS[ip]["locked_until"] > now:
+            log_auth_attempt(ip, "BLOCKED")
+            raise HTTPException(status_code=429, detail="Terlalu banyak percobaan gagal. Coba lagi dalam 15 menit.")
+        elif LOGIN_ATTEMPTS[ip]["locked_until"] != 0 and LOGIN_ATTEMPTS[ip]["locked_until"] <= now:
+            # Reset after lockout expires
+            LOGIN_ATTEMPTS[ip] = {"attempts": 0, "locked_until": 0}
+    else:
+        LOGIN_ATTEMPTS[ip] = {"attempts": 0, "locked_until": 0}
+        
+    if not ADMIN_PASSWORD_HASH:
+        # Dev mode fallback
+        log_auth_attempt(ip, "SUCCESS_DEV")
+        return {"access_token": create_access_token({"sub": "admin"}), "token_type": "bearer"}
+
+    if verify_password(payload.password, ADMIN_PASSWORD_HASH):
+        LOGIN_ATTEMPTS[ip] = {"attempts": 0, "locked_until": 0}
+        log_auth_attempt(ip, "SUCCESS")
+        token = create_access_token({"sub": "admin"})
+        return {"access_token": token, "token_type": "bearer"}
+    else:
+        LOGIN_ATTEMPTS[ip]["attempts"] += 1
+        if LOGIN_ATTEMPTS[ip]["attempts"] >= MAX_FAILED_ATTEMPTS:
+            LOGIN_ATTEMPTS[ip]["locked_until"] = now + LOCKOUT_TIME
+            log_auth_attempt(ip, "BLOCKED")
+            raise HTTPException(status_code=429, detail="Akun terkunci karena terlalu banyak percobaan gagal.")
+        
+        log_auth_attempt(ip, "FAILED")
+        raise HTTPException(status_code=401, detail="Password salah")
+
+@app.get("/api/auth-logs")
+def get_auth_logs(current_user: str = Depends(get_current_user)):
+    logs = []
+    if AUTH_LOG_FILE.exists():
+        try:
+            with open(AUTH_LOG_FILE, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                logs = [row for row in reader]
+                logs.reverse() # newest first
+        except Exception as e:
+            logger.error(f"Error reading auth logs: {e}")
+    return {"logs": logs[:100]} # return last 100
+
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -399,14 +506,14 @@ def merge_video_audio(
             "-map", "0:v:0",
             "-map", "1:a:0",
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", "128k",
             "-shortest"
         ])
         
         if not vf:
             cmd.extend(["-c:v", "copy"])
         else:
-            cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"])
+            cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "28"])
 
         cmd.append(str(output_path))
         
@@ -858,7 +965,7 @@ async def generate_audio_only(
 
 # ── Log Viewer Endpoints ───────────────────────────────────────────────────────
 @app.get("/api/logs")
-def get_logs():
+def get_logs(current_user: str = Depends(get_current_user)):
     _ensure_log_header()
     rows = []
     try:
@@ -878,7 +985,7 @@ def get_logs():
 
 
 @app.get("/api/logs/download")
-def download_logs():
+def download_logs(current_user: str = Depends(get_current_user)):
     _ensure_log_header()
     if not LOG_FILE.exists():
         raise HTTPException(status_code=404, detail="Log file not found.")
@@ -886,7 +993,7 @@ def download_logs():
 
 
 @app.delete("/api/logs/clear")
-def clear_logs():
+def clear_logs(current_user: str = Depends(get_current_user)):
     with LOG_LOCK:
         with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(LOG_HEADER)
@@ -982,7 +1089,7 @@ async def library_upload(
 
 
 @app.get("/api/library")
-def library_list():
+def library_list(current_user: str = Depends(get_current_user)):
     """Return all library videos that still exist on disk."""
     with LIBRARY_LOCK:
         entries = _read_library_meta()
@@ -997,7 +1104,9 @@ def library_list():
 
 
 @app.delete("/api/library/{video_id}")
-def library_delete(video_id: str):
+def library_delete(video_id: str,
+    current_user: str = Depends(get_current_user)
+):
     """Delete a video from the library."""
     with LIBRARY_LOCK:
         entries = _read_library_meta()

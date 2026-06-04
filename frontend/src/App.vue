@@ -38,7 +38,11 @@
     </header>
 
     <main class="max-w-6xl mx-auto px-4 py-10 text-slate-100">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <keep-alive>
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
     </main>
 
     <footer class="border-t border-white/10 py-6 text-center text-slate-500 text-sm">

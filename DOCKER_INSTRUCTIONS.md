@@ -16,11 +16,14 @@ Pastikan kamu sudah menginstal:
 ## Cara Menjalankan (Local / VPS)
 
 ### 1. Set Environment Variables
-Buat file `.env` di **root directory** (sejajar dengan `docker-compose.yml`) yang berisi API key Pollinations kamu:
+Buat (atau copy) file `.env` di folder **`backend/`** yang berisi API key Pollinations, Password Hash, dan JWT Secret kamu:
 ```env
+POLLINATIONS_API_URL=https://gen.pollinations.ai
 POLLINATIONS_API_KEY=sk_12345abcdef
+ADMIN_PASSWORD_HASH=$2b$12$....
+JWT_SECRET=rahasia123456789
 ```
-*(Opsional: kamu bisa langsung set variabel environment ini di shell server kamu).*
+*(Gunakan `python backend/generate_hash.py` secara lokal untuk membuat `ADMIN_PASSWORD_HASH` sebelum mendeploy ke VPS).*
 
 ### 2. Jalankan Build & Start
 Di terminal (root directory proyek), jalankan perintah berikut:
@@ -58,4 +61,4 @@ docker-compose down
 ## Catatan GitHub
 Semua konfigurasi Docker (`Dockerfile`, `docker-compose.yml`, `.dockerignore`) sudah siap di-push ke GitHub. Ketika kamu pull di VPS baru, kamu hanya perlu membuat ulang file `.env` dan menjalankan `docker-compose up -d --build`.
 
-File log prompt (`hook_logs.csv`) telah di-mounting keluar dari container, sehingga jika container di-restart log tidak akan hilang. Data video sementara yang sedang diproses tidak disimpan persisten agar ukuran storage tetap ringan.
+File log prompt (`hook_logs.csv`), riwayat login (`login_logs.csv`), dan file media library (di dalam folder `static`) telah di-mounting keluar dari container, sehingga jika container di-restart data pentingmu tidak akan hilang. Data video sementara yang sedang diproses tidak disimpan persisten agar ukuran storage tetap ringan.

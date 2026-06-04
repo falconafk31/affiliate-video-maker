@@ -9,13 +9,15 @@ services:
     restart: unless-stopped
     ports:
       - "9000:9000"
+    env_file:
+      - ./backend/.env
     environment:
-      # Inject the .env file contents
+      # These can still be overridden if needed
       - POLLINATIONS_API_URL=${POLLINATIONS_API_URL:-https://gen.pollinations.ai}
-      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
     volumes:
-      # Persist the logs
+      # Persist the logs and static library
       - ./backend/logs:/app/logs
+      - ./backend/static:/app/static
 
   frontend:
     build:

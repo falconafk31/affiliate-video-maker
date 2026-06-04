@@ -376,8 +376,26 @@
         </h3>
       </div>
 
-      <!-- Video Result -->
-      <video v-if="outputVideoUrl" id="output-video" :src="outputVideoUrl" controls class="w-full rounded-none bg-black max-h-[480px]"></video>
+      <!-- Video Result (Bandwidth Saver) -->
+      <div v-if="outputVideoUrl" class="bg-slate-800/50 p-6 rounded-none border border-slate-700 flex flex-col items-center gap-4 text-center">
+        <template v-if="!showPreview">
+          <div class="w-16 h-16 rounded-none bg-green-900/30 text-green-400 flex items-center justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-slate-200 font-semibold text-lg">Render Selesai!</p>
+            <p class="text-slate-400 text-xs mt-1">Preview dinonaktifkan otomatis untuk menghemat bandwidth server.</p>
+          </div>
+          <button @click="showPreview = true" class="text-retro-cyan text-sm underline hover:text-white transition-colors">
+            Muat Preview Video
+          </button>
+        </template>
+        <template v-else>
+          <video id="output-video" :src="outputVideoUrl" controls autoplay class="w-full rounded-none bg-black max-h-[480px]"></video>
+        </template>
+      </div>
       
       <!-- Audio Result -->
       <div v-if="outputAudioUrl && !outputVideoUrl" class="bg-slate-800/50 p-6 rounded-none border border-slate-700 flex flex-col items-center gap-4">
@@ -474,6 +492,8 @@ const outputAudioUrl = ref('')
 const durationMode   = ref('auto')
 const mode           = ref('video') // 'video' | 'audio'
 
+const showPreview    = ref(false)
+
 // SSE Progress
 const progressPercent = ref(0)
 
@@ -509,6 +529,7 @@ onMounted(() => {
 watch([prompt, voiceModel, durationMode, selectedFile, mode, libraryVideo], () => {
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
+  showPreview.value = false
 })
 
 // ── Computed ──────────────────────────────────────────────────────────────────
@@ -723,6 +744,7 @@ async function handleSubmit() {
   serverError.value = ''
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
+  showPreview.value = false
   progressPercent.value = 0
 
   try {
@@ -824,18 +846,13 @@ async function handleSubmit() {
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
 function reset() {
-  clearFile()
-  libraryVideo.value   = null
-  prompt.value         = ''
-  productName.value    = ''
-  voiceModel.value     = 'id-ID-GadisNeural'
-  durationMode.value   = 'auto'
-  hookGenerated.value  = false
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
-  serverError.value    = ''
-  errors.video         = ''
+  showPreview.value = false
+  // do NOT clear promptText, selectedFile, libraryVideo so they can iterate faster
   errors.prompt        = ''
+  errors.video         = ''
   progressPercent.value = 0
+  serverError.value    = ''
 }
 </script>
