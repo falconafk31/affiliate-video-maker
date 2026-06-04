@@ -44,3 +44,4 @@ backend/*.mp3
 backend/temp_processing/
 backend/logs/*
 !backend/logs/.gitkeep
+.env
