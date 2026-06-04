@@ -111,9 +111,9 @@ cd affiliate-video-maker/backend
 # Copy environment file
 cp .env.example .env
 
-# Edit .env — add your API key
-# POLLINATIONS_API_URL=https://gen.pollinations.ai
-# POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
+# Edit backend/.env — add your API key, Hash, and JWT Secret
+# See "Environment Variables" section below for details
+
 
 # Install dependencies
 pip install -r requirements.txt
@@ -135,6 +135,24 @@ npm run dev
 ```
 
 Open **http://localhost:5173** in your browser. (Note: Backend must be running on port 9000).
+
+---
+
+## 🔐 Environment Variables (.env)
+
+Buat file `.env` di dalam folder `backend/` dengan format berikut:
+
+```env
+POLLINATIONS_API_URL=https://gen.pollinations.ai
+POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
+
+# Security Configuration
+ADMIN_PASSWORD_HASH=$2b$12$R.3C7hN/2tq2WJ1F51M0QO.014v4N/M1L8.oP9wG2bZ9Z1P3G
+JWT_SECRET=rahasia123456789
+```
+
+> **Cara membuat `ADMIN_PASSWORD_HASH`:**  
+> Jalankan perintah `python backend/generate_hash.py` di terminal lokalmu. Script akan memintamu memasukkan password, lalu mencetak kode hash (seperti `$2b$12$...`) yang bisa langsung kamu *copy-paste* ke file `.env`.
 
 ---
 
