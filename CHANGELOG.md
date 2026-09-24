@@ -8,7 +8,16 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-*(Belum ada perubahan — ruang untuk rilis berikutnya, lihat [ROADMAP.md](./ROADMAP.md))*
+### Added
+- **Hook Generator V3** — registry tunggal untuk 13 variasi TikTok/Shopee/universal, duration profile 30–50 detik, context grounding (facts, audiens, pengalaman, visual), dan metadata log.
+- **Validator + repair output** — output aman divalidasi; duration yang hanya sedikit di luar target menjadi warning, bukan `502`, dengan satu percobaan repair.
+- **Audio/video duration fix** — FFmpeg memakai `-t` eksplisit dan FASTSTART; output tidak lagi kehilangan track audio ketika video lebih panjang daripada voiceover.
+- **Test koneksi model reasoning** — payload test memakai `max_tokens=128` untuk melewati minimum provider 16 tanpa mengorbankan ruang reasoning.
+
+### Changed
+- `.gitignore` sekarang mencakup seluruh media runtime, subtitle, font, log, SQLite, dan upload library; MP4 library yang sebelumnya tracked dilepas dari index tanpa menghapus file lokal.
+- README dan ROADMAP diperbarui; `LAPORAN_ANALISIS.md` dihapus dari repository.
+- E2E kini memverifikasi audio stream dan durasi video/audio sinkron, serta token test minimum.
 
 ---
 
@@ -163,7 +172,7 @@ Rilis fitur **Auto Subtitle Burn-in** + perbaikan pipeline render & pengembangan
 - Edge-TTS kini memakai `Communicate.stream()` untuk menangkap **word-boundary** (timing
   subtitle) — output audio tetap sama.
 - `get_media_duration` punya fallback parsing `ffmpeg -i` bila `ffprobe` tidak tersedia.
-- Dokumentasi: README disegarkan; ditambah `CHANGELOG.md`, `ROADMAP.md`, `LAPORAN_ANALISIS.md`.
+- Dokumentasi: README disegarkan; ditambah `CHANGELOG.md` dan `ROADMAP.md`.
 - `merge_video_audio` menerima `subtitle_ass` opsional.
 
 ### Fixed

@@ -24,6 +24,9 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent))
 import main  # noqa: E402
 
+# E2E memakai login dev dan tidak boleh membaca hash admin dari .env lokal.
+main.ADMIN_PASSWORD_HASH = None
+
 PASS, FAIL = 0, 0
 
 
@@ -63,7 +66,7 @@ def make_test_font(path: Path, family: str = "TestSubtitleFont") -> None:
 
 
 # ── Fake OpenAI-compatible server (chat/completions + audio/speech) ───────────
-FAKE_STATE = {"chat_model": None, "chat_auth": None, "chat_audio": None,
+FAKE_STATE = {"chat_model": None, "chat_auth": None, "chat_max_tokens": None, "chat_audio": None,
               "speech": None, "speech_auth": None}
 FAKE_MP3: Path | None = None
 
@@ -95,6 +98,7 @@ class FakeAIHandler(BaseHTTPRequestHandler):
                 model = body.get("model") or ""
                 FAKE_STATE["chat_model"] = model
                 FAKE_STATE["chat_auth"] = self.headers.get("Authorization", "")
+                FAKE_STATE["chat_max_tokens"] = body.get("max_tokens")
                 if model == "null-content-model":
                     # Simulasi respons OpenRouter model reasoning: content null
                     out = json.dumps({"choices": [{"message": {"role": "assistant", "content": None}}]}).encode()
@@ -206,6 +210,18 @@ async def run() -> None:
             check("Job 1 → video & srt terpersist",
                   (main.VIDEOS_DIR / f"{vid1}.mp4").exists()
                   and (main.SUBS_DIR / f"{vid1}.srt").exists())
+            output1 = main.VIDEOS_DIR / f"{vid1}.mp4"
+            probe1 = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "json", str(output1)],
+                capture_output=True, text=True, check=True,
+            )
+            streams1 = json.loads(probe1.stdout).get("streams", [])
+            has_audio1 = any(s.get("codec_type") == "audio" for s in streams1)
+            video_dur1 = float(next((s.get("duration", 0) for s in streams1 if s.get("codec_type") == "video"), 0))
+            audio_dur1 = float(next((s.get("duration", 0) for s in streams1 if s.get("codec_type") == "audio"), 0))
+            check("output final punya audio stream + durasi sinkron",
+                  has_audio1 and audio_dur1 > 0 and abs(video_dur1 - audio_dur1) < 0.5,
+                  f"video={video_dur1:.2f}s audio={audio_dur1:.2f}s")
             ass1 = main.SUBS_DIR / f"{vid1}.ass"
             check("Job 1 → sidecar .ass terpersist (gaya default DejaVu)",
                   ass1.exists() and "DejaVu Sans" in ass1.read_text(encoding="utf-8"))
@@ -297,6 +313,9 @@ async def run() -> None:
                     "api_key": "sk-test-secret-123456", "model": "fake-gpt"})
                 check("test koneksi text → ok", r.status_code == 200 and r.json().get("ok") is True,
                       r.text[:150])
+                check("test koneksi memakai max_tokens >= 16",
+                      (FAKE_STATE.get("chat_max_tokens") or 0) >= 16,
+                      str(FAKE_STATE.get("chat_max_tokens")))
                 r = await client.post("/api/ai-config/test", headers=auth, json={
                     "kind": "voice_speech", "base_url": base_url,
                     "api_key": "sk-voice-key-999", "model": "fake-tts", "voice": "mini-voice"})
@@ -575,8 +594,12 @@ async def run() -> None:
                     pth.unlink(missing_ok=True)
 
                 r = await client.get("/api/ai-config", headers=auth)
-                check("konfigurasi bersih setelah dihapus",
-                      not r.json()["text_models"] and not r.json()["voice_models"])
+                remaining_text_ids = {m.get("id") for m in r.json().get("text_models", [])}
+                remaining_voice_ids = {m.get("id") for m in r.json().get("voice_models", [])}
+                check("model yang dibuat test berhasil dihapus",
+                      tid not in remaining_text_ids
+                      and vid_custom not in remaining_voice_ids
+                      and vid_chat not in remaining_voice_ids)
             finally:
                 main.POLLINATIONS_API_URL, main.POLLINATIONS_API_KEY = old_poll_url, old_poll_key
                 server.shutdown()

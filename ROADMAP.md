@@ -19,6 +19,7 @@ Versi rilis dan isinya terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).
 - 🟢 **v0.4.0** — **Custom AI Provider (OpenAI-compatible)**: model teks (hook) terpisah dari model suara (voiceover) — masing-masing bisa pakai provider sendiri (Base URL + API Key + Model bebas); 1 model teks aktif + daftar voice model custom (`custom:{id}`); panel ⚙️ Kelola AI Model; API key ter-mask; `POLLINATIONS_API_KEY` jadi opsional; E2E fake OpenAI server.
 - 🟢 **v0.5.0** — **Test Koneksi provider** (🧪 sebelum simpan, `{ok, message, latency_ms}`) + **dua jenis endpoint voice custom** (`/audio/speech` standar ATAU `/chat/completions` + modalities audio gpt-4o-audio style) + **semua model tidak hardcode** (model teks & suara Pollinations serta voice Edge-TTS configurable via "Model Bawaan").
 - 🟢 **v0.6.0** — **Halaman `/setting` (Kelola AI Model)** — nav `[ Setting ]`, modal di home dihapus, panel "Endpoint yang digunakan" + **penyimpanan konfigurasi di database SQLite** (`backend/data/app.db`, tabel `ai_models` + `ai_settings`, migrasi otomatis dari json lama).
+- 🟢 **v0.7.0** — **Hook V3 + render audio fix**: registry 13 variasi dengan grounding facts, duration 30–50 detik, validator/repair warning, FFmpeg explicit `-t` + FASTSTART, dan test koneksi model reasoning dengan `max_tokens=128`.
 
 ---
 
@@ -36,7 +37,7 @@ Versi rilis dan isinya terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).
 - 🔴 **Hapus semua media (audio/video) di logs** — tombol bersih-bersih massal.
 - 🔴 **Auto Add Music** — soundtrack latar otomatis dengan ducking volume terhadap suara.
 
-## 🔒 0.4.x — Keamanan & UX (lihat LAPORAN_ANALISIS.md)
+## 🔒 0.4.x — Keamanan & UX
 
 - 🔴 Aktifkan `--reload` opsional via env; ganti `loguru` → `logging` (hilangkan 1 dependensi).
 - 🔴 Enkripsi/HTTP-only cookie untuk JWT + proteksi CORS yang benar (saat ini `allow_origins=["*"]`).

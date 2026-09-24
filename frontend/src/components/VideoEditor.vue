@@ -46,7 +46,7 @@
             id="hook-tiktok"
             class="hook-tab"
             :class="hookType === 'tiktok' ? 'hook-tab-active' : 'hook-tab-inactive'"
-            @click="hookType = 'tiktok'"
+            @click="setHookType('tiktok')"
           >
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.16 8.16 0 004.77 1.52V6.76a4.85 4.85 0 01-1-.07z"/>
@@ -60,7 +60,7 @@
             id="hook-shopee"
             class="hook-tab"
             :class="hookType === 'shopee' ? 'hook-tab-active' : 'hook-tab-inactive'"
-            @click="hookType = 'shopee'"
+            @click="setHookType('shopee')"
           >
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
@@ -73,22 +73,64 @@
 
       <!-- Hook variation selector -->
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-2">Variasi Hook</label>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="flex items-end justify-between gap-3 mb-2">
+          <label class="block text-sm font-medium text-slate-300">Variasi Hook V3</label>
+          <span class="text-[11px] text-slate-500">{{ selectedHookVariation?.profileLabel }} · {{ selectedHookVariation?.duration }}</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           <button
-            v-for="(v, i) in hookVariations[hookType]"
-            :key="i"
+            v-for="v in hookVariations[hookType]"
+            :key="v.key"
             type="button"
-            class="text-xs py-2 px-3 rounded-none border transition-all duration-150 text-left"
-            :class="selectedVariation === i
+            class="text-xs py-2.5 px-3 rounded-none border transition-all duration-150 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+            :class="selectedVariation === v.key
               ? 'border-brand-500 bg-brand-900/40 text-brand-300'
               : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
-            @click="selectedVariation = i"
+            :title="`${v.description} Target ${v.duration}.`"
+            :aria-pressed="selectedVariation === v.key"
+            @click="selectedVariation = v.key"
           >
-            {{ v.label }}
+            <span class="block font-semibold">{{ v.label }}</span>
+            <span class="block mt-1 text-[10px] leading-relaxed text-slate-500">{{ v.description }}</span>
           </button>
         </div>
       </div>
+
+      <!-- V3 grounding context: facts prevent fabricated claims -->
+      <details class="border border-slate-700 bg-slate-900/40 rounded-none">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-slate-300 hover:text-retro-cyan">
+          🎯 Fakta, Audiens &amp; Konteks (opsional)
+        </summary>
+        <div class="space-y-4 border-t border-slate-700 p-4">
+          <div>
+            <label for="product-facts" class="block text-xs font-medium text-slate-300 mb-1">Fakta produk / promo terverifikasi</label>
+            <textarea id="product-facts" v-model="productFacts" rows="3" maxlength="2500" class="input-retro"
+              placeholder="Contoh: Bahan aluminium, garansi satu tahun, voucher dua puluh persen berlaku sampai tanggal tertentu."></textarea>
+            <p class="mt-1 text-[11px] text-slate-500">Hanya fakta ini boleh dipakai AI. Angka yang tidak tersedia tidak akan dikarang.</p>
+          </div>
+          <div>
+            <label for="target-audience" class="block text-xs font-medium text-slate-300 mb-1">Audiens target</label>
+            <input id="target-audience" v-model="targetAudience" type="text" maxlength="500" class="input-retro"
+              placeholder="Contoh: ibu yang bekerja dari rumah, pemain pemula, atau pembaca." />
+          </div>
+          <div v-if="['story', 'review', 'v2_personal'].includes(selectedVariation)">
+            <label for="experience-notes" class="block text-xs font-medium text-slate-300 mb-1">Pengalaman nyata (wajib untuk tone personal)</label>
+            <textarea id="experience-notes" v-model="experienceNotes" rows="3" maxlength="2000" class="input-retro"
+              placeholder="Ceritakan penggunaan nyata; jangan berisi klaim yang belum diuji."></textarea>
+          </div>
+          <div v-if="selectedVariation === 'v2_visual'">
+            <label for="visual-context" class="block text-xs font-medium text-slate-300 mb-1">Visual frame / aksi video <span class="text-retro-cyan">*</span></label>
+            <textarea id="visual-context" v-model="visualContext" rows="3" maxlength="1500" class="input-retro"
+              placeholder="Contoh: Tangan membuka tutup kipas, lalu udara bergerak di dekat kepala."></textarea>
+            <p class="mt-1 text-[11px] text-amber-400">Wajib diisi agar voiceover cocok dengan footage.</p>
+          </div>
+          <div>
+            <label for="cta-preference" class="block text-xs font-medium text-slate-300 mb-1">Preferensi CTA (opsional)</label>
+            <input id="cta-preference" v-model="ctaPreference" type="text" maxlength="300" class="input-retro"
+              placeholder="Contoh: Cek keranjang kuning, lalu lihat detail produk." />
+          </div>
+        </div>
+      </details>
 
       <!-- Generate button -->
       <div class="flex items-center justify-between text-xs text-slate-500">
@@ -102,7 +144,7 @@
         type="button"
         id="generate-hook-btn"
         class="btn-retro w-full"
-        :disabled="!productName.trim() || isGenerating"
+        :disabled="!hookCanGenerate || isGenerating"
         @click="generateHook"
       >
         <svg v-if="isGenerating" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -122,8 +164,17 @@
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
           </svg>
-          Hook AI berhasil digenerate! Silakan cek & edit di Step 2.
+          Hook V3 berhasil digenerate! Silakan cek & edit di Step 2.
         </div>
+         <div v-if="hookMetadata" class="text-[11px] text-green-300/80">
+           {{ hookMetadata.word_count }} kata · ±{{ hookMetadata.estimated_duration }} detik
+           <span v-if="hookMetadata.repair_count > 0">· {{ hookMetadata.repair_count }} repair</span>
+         <div v-if="hookMetadata?.warnings?.length" class="text-[11px] text-amber-300/90">
+           ⚠ {{ hookMetadata.warnings.join(' · ') }}
+         </div>
+
+         </div>
+
         <button
           type="button"
           class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-slate-100 text-[11px] font-bold rounded-none transition-colors shadow-lg shadow-green-900/20"
@@ -816,13 +867,19 @@ const showLibraryPicker  = ref(false)
 const libraryItems       = ref([])
 const libraryPickerLoading = ref(false)
 
-// Hook generator state
-const productName      = ref('')
-const hookType         = ref('tiktok')     // 'tiktok' | 'shopee'
-const selectedVariation = ref(0)
-const hookGenerated    = ref(false)
-const isGenerating     = ref(false)
-const hookError        = ref('')
+// Hook generator state — V3 uses stable variation keys, not platform indexes.
+const productName        = ref('')
+const hookType           = ref('tiktok')     // 'tiktok' | 'shopee'
+const selectedVariation  = ref('viral')
+const productFacts       = ref('')
+const targetAudience     = ref('')
+const experienceNotes    = ref('')
+const visualContext      = ref('')
+const ctaPreference      = ref('')
+const hookGenerated      = ref(false)
+const isGenerating       = ref(false)
+const hookError          = ref('')
+const hookMetadata       = ref(null)
 
 
 const errors = reactive({ video: '', prompt: '' })
@@ -985,53 +1042,85 @@ const voiceOptions = computed(() => {
   return [...custom, ...base]
 })
 
-// ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
+// ── Hook Variations V3 — keys tetap kompatibel dengan API lama ───────────────
+const hookProfileMeta = {
+  short: { profileLabel: 'Pendek', duration: '30–37 detik' },
+  standard: { profileLabel: 'Standar', duration: '30–45 detik' },
+  long: { profileLabel: 'Panjang', duration: '37–50 detik' },
+}
+const v3Variation = (key, label, profile, description) => ({
+  key, label, profile, description, ...hookProfileMeta[profile],
+})
+const universalVariations = [
+  v3Variation('v2_problem', '🚀 Problem', 'standard', 'Masalah spesifik audiens, solusi, lalu CTA.'),
+  v3Variation('v2_personal', '🚀 Personal', 'standard', 'Satu POV dari pengalaman yang diberikan.'),
+  v3Variation('v2_education', '🚀 Edukasi', 'standard', 'Insight praktis tanpa statistik karangan.'),
+  v3Variation('v2_contra', '🚀 Pro-Kontra', 'standard', 'Tantang satu asumsi aman dengan fakta input.'),
+  v3Variation('v2_visual', '🚀 Visual Shock', 'standard', 'Reaksi spontan yang cocok dengan visual context.'),
+]
 const hookVariations = {
   tiktok: [
-    { key: 'viral',  label: '🔥 Viral Impulsif' },
-    { key: 'shock',  label: '😱 Shock & Reveal' },
-    { key: 'story',  label: '💬 Cerita Personal' },
-    { key: 'fomo',   label: '⚡ FOMO Urgency'   },
-    { key: 'v2_problem',   label: '🚀 V2: Problem' },
-    { key: 'v2_personal',  label: '🚀 V2: Personal' },
-    { key: 'v2_education', label: '🚀 V2: Edukasi' },
-    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
-    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
+    v3Variation('viral', '🔥 Viral Impulsif', 'short', 'Hook tinggi energi dengan satu keunggulan relevan.'),
+    v3Variation('shock', '😱 Shock & Reveal', 'standard', 'Aksi nyata diikuti reveal fitur tersembunyi.'),
+    v3Variation('story', '💬 Cerita Personal', 'long', 'Cerita satu orang dari pengalaman input.'),
+    v3Variation('fomo', '⚡ FOMO Healthy', 'short', 'Urgensi hanya dari fakta promo atau scarcity.'),
+    ...universalVariations,
   ],
   shopee: [
-    { key: 'flash',   label: '🛒 Flash Sale'    },
-    { key: 'review',  label: '⭐ Review Jujur'  },
-    { key: 'bundle',  label: '🎁 Bundle Deal'   },
-    { key: 'premium', label: '💎 Premium Value' },
-    { key: 'v2_problem',   label: '🚀 V2: Problem' },
-    { key: 'v2_personal',  label: '🚀 V2: Personal' },
-    { key: 'v2_education', label: '🚀 V2: Edukasi' },
-    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
-    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
+    v3Variation('flash', '🛒 Flash Sale', 'short', 'Deal Shopee dari fakta harga dan promo.'),
+    v3Variation('review', '⭐ Review Jujur', 'long', 'Review jujur atau buyer checklist yang jujur.'),
+    v3Variation('bundle', '🎁 Bundle Deal', 'short', 'Nilai paket dari isi dan bonus terverifikasi.'),
+    v3Variation('premium', '💎 Premium Value', 'long', 'Nilai premium dari kualitas terverifikasi.'),
+    ...universalVariations,
   ],
+}
+const selectedHookVariation = computed(() =>
+  hookVariations[hookType.value].find(v => v.key === selectedVariation.value)
+  || hookVariations[hookType.value][0],
+)
+const hookCanGenerate = computed(() =>
+  !!productName.value.trim()
+  && (selectedVariation.value !== 'v2_visual' || !!visualContext.value.trim()),
+)
+
+function setHookType(platform) {
+  hookType.value = platform
+  if (!hookVariations[platform].some(v => v.key === selectedVariation.value)) {
+    selectedVariation.value = hookVariations[platform][0].key
+  }
 }
 
 // ── Generate Hook via AI ─────────────────────────────────────────────────────
 async function generateHook() {
   const name = productName.value.trim()
-  if (!name) return
+  if (!name || !hookCanGenerate.value) {
+    if (selectedVariation.value === 'v2_visual' && !visualContext.value.trim()) {
+      hookError.value = 'Isi konteks visual terlebih dahulu untuk Visual Shock.'
+    }
+    return
+  }
 
   isGenerating.value = true
   hookGenerated.value = false
   hookError.value = ''
-
-  const variations = hookVariations[hookType.value]
-  const varItem    = variations[selectedVariation.value] ?? variations[0]
+  hookMetadata.value = null
+  const varItem = selectedHookVariation.value
 
   try {
     const formData = new FormData()
     formData.append('product_name', name)
     formData.append('hook_type',    hookType.value)
     formData.append('variation',    varItem.key)
+    formData.append('product_facts', productFacts.value.trim())
+    formData.append('target_audience', targetAudience.value.trim())
+    formData.append('experience_notes', experienceNotes.value.trim())
+    formData.append('visual_context', visualContext.value.trim())
+    formData.append('cta_preference', ctaPreference.value.trim())
 
     const response = await axios.post(`${API_BASE_URL}/api/generate-hook`, formData, { timeout: 60000 })
     prompt.value        = response.data.script
     logId.value         = response.data.log_id || ''
+    hookMetadata.value  = response.data
     hookGenerated.value = true
 
     setTimeout(() => {

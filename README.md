@@ -7,7 +7,7 @@
 ![AI](https://img.shields.io/badge/AI-Pollinations%20AI-FF6B35)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-📖 **Dokumentasi lain:** [CHANGELOG.md](./CHANGELOG.md) · [ROADMAP.md](./ROADMAP.md) · [LAPORAN_ANALISIS.md](./LAPORAN_ANALISIS.md) · [DEPLOYMENT.md](./DEPLOYMENT.md) · [DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS.md)
+📖 **Dokumentasi lain:** [CHANGELOG.md](./CHANGELOG.md) · [ROADMAP.md](./ROADMAP.md) · [DEPLOYMENT.md](./DEPLOYMENT.md) · [DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS.md)
 
 ---
 ## ✨ Screenshoot
@@ -64,7 +64,6 @@ affiliate-video-maker/
 ├── README.md
 ├── CHANGELOG.md                 ← Riwayat perubahan
 ├── ROADMAP.md                   ← Rencana pengembangan
-├── LAPORAN_ANALISIS.md          ← Analisis kode & saran perbaikan
 ├── docker-compose.yml           ← Docker deployment orchestration
 ├── DOCKER_INSTRUCTIONS.md       ← Docker deployment guide
 ├── backend/
@@ -383,7 +382,7 @@ Kelola lewat halaman **`/setting`** (menu **[ Setting ]** di navbar — bukan di
 | 🧪 Test Koneksi | `POST /api/ai-config/test` → permintaan mini ke endpoint provider di atas |
 
 Catatan:
-- **🧪 Test Koneksi** mengirim permintaan mini sungguhan ke provider (chat 1 kata / TTS "Halo.") dan melaporkan hasil + latensi — uji dulu sebelum simpan. Saat edit dengan API key kosong, test memakai key tersimpan.
+- **🧪 Test Koneksi** mengirim permintaan mini sungguhan ke provider (chat 1 kata / TTS "Halo.") dengan `max_tokens=128` agar kompatibel dengan provider yang mewajibkan minimum 16 dan model reasoning. Saat edit dengan API key kosong, test memakai key tersimpan.
 - Konfigurasi disimpan di **database SQLite** (`backend/data/app.db` — **tidak ikut Git**): tabel `ai_models` + `ai_settings`. Config lama (`logs/ai_config.json`) **dimigrasi otomatis** saat startup.
 - API key selalu ditampilkan **ter-mask**. Saat edit, mengosongkan API key = **mempertahankan key lama**.
 - `POLLINATIONS_API_KEY` kini **opsional** — hanya wajib saat provider Pollinations yang dipakai (hook bawaan / GPT-Audio).
@@ -393,26 +392,28 @@ Catatan:
 
 ## 🤖 Auto Hook Generator
 
-The frontend includes a built-in hook script generator. Just type a **product name** and select a platform:
+The frontend includes a built-in **V3 hook/script generator**. Enter the product name, choose a platform and variation, then optionally add verified product facts, target audience, real experience notes, and visual context. V3 uses word-count duration profiles, validates the result, and performs one automatic repair attempt when the first output is invalid.
 
 ### TikTok Hooks
-- 🔥 **Viral Impulsif** — High energy, FOMO-driven
-- 😱 **Shock & Reveal** — Curiosity/surprise angle
-- 💬 **Cerita Personal** — Authentic testimonial style
-- ⚡ **FOMO Urgency** — Scarcity + time pressure
+- 🔥 **Viral Impulsif** — high-energy hook with one relevant benefit
+- 😱 **Shock & Reveal** — real action followed by a verified feature reveal
+- 💬 **Cerita Personal** — one-person story grounded in supplied experience
+- ⚡ **FOMO Healthy** — urgency only when verified scarcity/promo facts exist
 
 ### Shopee Hooks
-- 🛒 **Flash Sale** — Discount-focused
-- ⭐ **Review Jujur** — Honest review with voucher CTA
-- 🎁 **Bundle Deal** — Buy-more-save-more angle
-- 💎 **Premium Value** — Quality justification
+- 🛒 **Flash Sale** — deal based on verified price/promo facts
+- ⭐ **Review Jujur** — honest review or buyer checklist when no experience is supplied
+- 🎁 **Bundle Deal** — bundle value from verified contents and bonuses
+- 💎 **Premium Value** — quality/value justification from verified specifications
 
-### V2 Hooks (universal — untuk kedua platform)
-- 🚀 **V2: Problem** — Problem-based, "itu gue banget" dalam 2 detik
-- 🚀 **V2: Personal** — Personal experience, terasa cerita teman
-- 🚀 **V2: Edukasi** — Insight gratis, bukan terasa diiklani
-- 🚀 **V2: Pro-Kontra** — Contra opinion yang bikin berhenti scroll
-- 🚀 **V2: Visual Shock** — Reaksi spontan menyaksikan sesuatu
+### Universal Hooks
+- 🚀 **Problem** — specific audience problem, solution, proof, CTA
+- 🚀 **Personal** — one consistent `aku` POV without invented experience
+- 🚀 **Edukasi** — useful insight without fabricated statistics
+- 🚀 **Pro-Kontra** — one safe assumption challenged with verified reasoning
+- 🚀 **Visual Shock** — voiceover grounded in the supplied visual context
+
+V3 never treats illustrative numbers as facts. If price, stock, voucher, rating, testimonial, or performance data is not supplied, the generator avoids making that specific claim. `v2_visual` requires `visual_context`.
 
 ---
 
@@ -423,6 +424,8 @@ The frontend includes a built-in hook script generator. Just type a **product na
 | 🧠 **Auto (Smart)** | Loop video if audio > video; trim video if video > audio | General use |
 | 🔁 **Loop Video** | Always loop video to fill full audio duration | Short clips + long script |
 | ✂️ **Trim Audio** | Clip audio to video length | Fixed-length video content |
+
+Render memakai durasi output eksplisit (`-t`) dan flag FASTSTART MP4 agar audio tidak berhenti di tengah video ketika video lebih panjang daripada voiceover.
 
 ---
 
@@ -436,7 +439,6 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for full VPS + PM2 setup guide.
 
 - Rencana pengembangan (fitur berikutnya, perbaikan keamanan, dll.) → **[ROADMAP.md](./ROADMAP.md)**
 - Riwayat perubahan rilis → **[CHANGELOG.md](./CHANGELOG.md)**
-- Hasil analisis kode lengkap (temuan bug/UX/performa) → **[LAPORAN_ANALISIS.md](./LAPORAN_ANALISIS.md)**
 
 ---
 
