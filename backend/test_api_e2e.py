@@ -92,11 +92,20 @@ class FakeAIHandler(BaseHTTPRequestHandler):
                     }}]
                 }).encode()
             else:
-                FAKE_STATE["chat_model"] = body.get("model")
+                model = body.get("model") or ""
+                FAKE_STATE["chat_model"] = model
                 FAKE_STATE["chat_auth"] = self.headers.get("Authorization", "")
-                out = json.dumps({
-                    "choices": [{"message": {"content": "Cek kipas mini ini, baterainya awet dua hari penuh!"}}]
-                }).encode()
+                if model == "null-content-model":
+                    # Simulasi respons OpenRouter model reasoning: content null
+                    out = json.dumps({"choices": [{"message": {"role": "assistant", "content": None}}]}).encode()
+                elif model == "list-content-model":
+                    # Simulasi provider yang mengirim content berupa list of parts
+                    out = json.dumps({"choices": [{"message": {"role": "assistant",
+                        "content": [{"type": "text", "text": "Cek kipas mini ini, dari konten list!"}]}}]}).encode()
+                else:
+                    out = json.dumps({
+                        "choices": [{"message": {"content": "Cek kipas mini ini, baterainya awet dua hari penuh!"}}]
+                    }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -336,6 +345,37 @@ async def run() -> None:
                 check("edit tanpa key → key lama tetap (has_key)",
                       any(m["id"] == tid and m["has_key"] for m in r.json()["text_models"]))
 
+                # ── Regresi bug OpenRouter: content null / content list ──────
+                r = await client.post("/api/ai-config/text-models", headers=auth, json={
+                    "label": "Null Content", "base_url": base_url,
+                    "api_key": "sk-null", "model": "null-content-model"})
+                tid_null = r.json()["model"]["id"]
+                await client.post("/api/ai-config/active-text-model", headers=auth, json={"id": tid_null})
+                r = await client.post("/api/generate-hook", headers=auth, data={
+                    "product_name": "Kipas Mini", "hook_type": "tiktok", "variation": "viral"})
+                check("content null → 502 pesan jelas (bukan 500 NoneType)",
+                      r.status_code == 502 and "content" in r.json().get("detail", "").lower(),
+                      f"{r.status_code} {r.text[:120]}")
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "text", "base_url": base_url, "api_key": "sk-null",
+                    "model": "null-content-model"})
+                check("test koneksi deteksi content kosong → ok:false",
+                      r.json().get("ok") is False, r.text[:120])
+
+                r = await client.post("/api/ai-config/text-models", headers=auth, json={
+                    "label": "List Content", "base_url": base_url,
+                    "api_key": "sk-list", "model": "list-content-model"})
+                tid_list = r.json()["model"]["id"]
+                await client.post("/api/ai-config/active-text-model", headers=auth, json={"id": tid_list})
+                r = await client.post("/api/generate-hook", headers=auth, data={
+                    "product_name": "Kipas Mini", "hook_type": "tiktok", "variation": "viral"})
+                check("content format list [{type:text}] → hook tetap jadi",
+                      r.status_code == 200 and "kipas mini" in r.json().get("script", "").lower(),
+                      r.text[:120])
+                await client.post("/api/ai-config/active-text-model", headers=auth, json={"id": tid})
+                await client.delete(f"/api/ai-config/text-models/{tid_null}", headers=auth)
+                await client.delete(f"/api/ai-config/text-models/{tid_list}", headers=auth)
+
                 # Model suara custom — endpoint standar /audio/speech
                 r = await client.post("/api/ai-config/voice-models", headers=auth, json={
                     "label": "Fake TTS", "base_url": base_url,
@@ -344,6 +384,19 @@ async def run() -> None:
                 check("POST voice-models → 200 + id", r.status_code == 200
                       and r.json().get("model", {}).get("id"), r.text[:150])
                 vid_custom = r.json()["model"]["id"]
+
+                # ── Penyimpanan di DATABASE (SQLite) ─────────────────────────
+                import sqlite3
+                check("DB SQLite ada di backend/data/app.db", Path(main.DB_PATH).exists(),
+                      str(main.DB_PATH))
+                conn = sqlite3.connect(str(main.DB_PATH))
+                n_text = conn.execute("SELECT COUNT(*) FROM ai_models WHERE id=? AND kind='text'",
+                                      (tid,)).fetchone()[0]
+                n_voice = conn.execute("SELECT COUNT(*) FROM ai_models WHERE id=? AND kind='voice'",
+                                       (vid_custom,)).fetchone()[0]
+                conn.close()
+                check("model teks & suara tersimpan di tabel ai_models (SQLite)",
+                      n_text == 1 and n_voice == 1, f"text={n_text} voice={n_voice}")
 
                 # Job 4: voice custom OpenAI-compatible (/audio/speech)
                 with open(raw, "rb") as f:
@@ -447,6 +500,25 @@ async def run() -> None:
                 check("DELETE voice-models (speech) → ok", r.status_code == 200)
                 r = await client.delete(f"/api/ai-config/voice-models/{vid_chat}", headers=auth)
                 check("DELETE voice-models (chat_audio) → ok", r.status_code == 200)
+                r = await client.get("/api/ai-config", headers=auth)
+                # ── Migrasi json lama → SQLite ───────────────────────────────
+                legacy = Path(main.__file__).parent / "logs" / "ai_config.json"
+                legacy.write_text(json.dumps({
+                    "text_models": [{"id": "legacy123", "label": "Legacy LLM",
+                                     "base_url": base_url, "api_key": "sk-legacy-key",
+                                     "model": "legacy-model"}],
+                    "active_text_model": "",
+                }), encoding="utf-8")
+                main._migrate_legacy_ai_json()
+                r = await client.get("/api/ai-config", headers=auth)
+                check("migrasi json lama → SQLite (entry legacy masuk DB)",
+                      any(m["id"] == "legacy123" for m in r.json()["text_models"]))
+                check("file json lama diarsipkan (.json.migrated)",
+                      not legacy.exists() and legacy.with_suffix(".json.migrated").exists())
+                await client.delete("/api/ai-config/text-models/legacy123", headers=auth)
+                for pth in (legacy, legacy.with_suffix(".json.migrated")):
+                    pth.unlink(missing_ok=True)
+
                 r = await client.get("/api/ai-config", headers=auth)
                 check("konfigurasi bersih setelah dihapus",
                       not r.json()["text_models"] and not r.json()["voice_models"])

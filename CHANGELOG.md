@@ -12,6 +12,30 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.6.0] - 2026-09-24
+
+**Halaman /setting (Kelola AI Model) + penyimpanan konfigurasi di database SQLite.**
+
+### Added
+- **⚙️ Halaman `/setting` — "Kelola AI Model"** (nav baru `[ Setting ]`): kelola model teks,
+  model suara, model bawaan, dan 🧪 test koneksi — **bukan lagi di home** (modal di editor
+  dihapus, diganti link ke `/setting`).
+- **Panel "🔌 Endpoint yang digunakan"** di `/setting` — setiap model menampilkan endpoint
+  lengkap yang dipanggil (mis. `POST {base_url}/chat/completions`,
+  `POST {base_url}/audio/speech`) + endpoint bawaan Pollinations.
+- **Penyimpanan konfigurasi AI di DATABASE (SQLite)** — `backend/data/app.db`, tabel
+  `ai_models` (model teks & suara) + `ai_settings` (model aktif, model bawaan) — stdlib
+  `sqlite3`, tanpa dependensi baru. **Migrasi otomatis** dari `logs/ai_config.json` (format
+  lama) saat startup, file lama diarsipkan `.json.migrated`.
+- E2E: asersi baris tersimpan di tabel `ai_models` + uji migrasi json → SQLite.
+
+### Changed
+- Endpoint `/api/ai-config/*` kini membaca/menulis SQLite (kontrak API tetap sama).
+- `GET /api/ai-config` menambah `pollinations_url` (untuk tampilan endpoint).
+- `backend/data/` masuk `.gitignore` (berisi API key — tidak boleh ikut Git).
+
+---
+
 ## [0.5.0] - 2026-09-24
 
 **Test koneksi provider, endpoint chat-audio (modalities), dan semua model tidak hardcode.**

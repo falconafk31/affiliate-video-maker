@@ -45,4 +45,6 @@ backend/*.mp3
 backend/temp_processing/
 backend/logs/*
 !backend/logs/.gitkeep
+# Database SQLite (konfigurasi AI — berisi API key, JANGAN commit)
+backend/data/
 .env

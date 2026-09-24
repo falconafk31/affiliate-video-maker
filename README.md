@@ -355,15 +355,27 @@ Aplikasi memisahkan **model teks (hook)** dan **model suara (voice)** — masing
 | **Model Teks (hook)** | Pollinations (`model` bisa diganti, default `openai`) | `POST {base_url}/chat/completions` — bebas model (gpt-4o-mini, deepseek-chat, llama, dll.) |
 | **Model Suara (voice)** | Edge-TTS (voice bisa diganti) + GPT-Audio Pollinations (`model` bisa diganti, default `openai-audio`) | 2 jenis endpoint: **`/audio/speech`** (standar OpenAI TTS) atau **`/chat/completions` + modalities audio** (gpt-4o-audio style) — bebas model + voice |
 
-Kelola lewat tombol **⚙️ Kelola AI Model** di editor (Step 1 hook & Step 2 voice):
+Kelola lewat halaman **`/setting`** (menu **[ Setting ]** di navbar — bukan di editor):
 
 1. **Model Teks** — isi *Label*, *Base URL* (akhiran `/v1`), *API Key*, *Model* → **🧪 Test Koneksi** → **Aktifkan untuk hook**. Hanya **satu model teks aktif** (1 AI model untuk generate hook text).
 2. **Model Suara** — isi *Label*, *Base URL*, *API Key*, *Model*, *Voice*, *Speed*, **jenis endpoint** → **🧪 Test Koneksi** → otomatis muncul di dropdown **Voice Model** sebagai `custom:{id}` (bisa banyak provider sekaligus).
 3. **Model Bawaan** — ganti nama model Pollinations (teks & audio) dan voice Edge-TTS (mis. `id-ID-ArdiNeural` untuk suara laki-laki) — semua configurable, **tidak hardcode**.
 
+**Endpoint yang digunakan** (ditampilkan juga di panel "🔌 Endpoint yang digunakan" pada `/setting`):
+
+| Peran | Endpoint yang dipanggil |
+|---|---|
+| Model teks (hook) custom | `POST {base_url}/chat/completions` |
+| Model teks (hook) bawaan | `POST {POLLINATIONS_API_URL}/v1/chat/completions` |
+| Model suara custom (standar) | `POST {base_url}/audio/speech` |
+| Model suara custom (chat audio) | `POST {base_url}/chat/completions` + `modalities: ["text","audio"]` |
+| Model suara bawaan | Edge-TTS (tanpa API key) / `POST {POLLINATIONS_API_URL}/v1/chat/completions` (GPT Audio) |
+| 🧪 Test Koneksi | `POST /api/ai-config/test` → permintaan mini ke endpoint provider di atas |
+
 Catatan:
 - **🧪 Test Koneksi** mengirim permintaan mini sungguhan ke provider (chat 1 kata / TTS "Halo.") dan melaporkan hasil + latensi — uji dulu sebelum simpan. Saat edit dengan API key kosong, test memakai key tersimpan.
-- API key disimpan di server (`backend/logs/ai_config.json` — **tidak ikut Git**) dan selalu ditampilkan **ter-mask**. Saat edit, mengosongkan API key = **mempertahankan key lama**.
+- Konfigurasi disimpan di **database SQLite** (`backend/data/app.db` — **tidak ikut Git**): tabel `ai_models` + `ai_settings`. Config lama (`logs/ai_config.json`) **dimigrasi otomatis** saat startup.
+- API key selalu ditampilkan **ter-mask**. Saat edit, mengosongkan API key = **mempertahankan key lama**.
 - `POLLINATIONS_API_KEY` kini **opsional** — hanya wajib saat provider Pollinations yang dipakai (hook bawaan / GPT-Audio).
 - Word-boundary (timing subtitle) hanya dari Edge-TTS; voice custom memakai timing proporsional.
 

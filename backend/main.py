@@ -1486,7 +1486,9 @@ async def generate_hook(
                 {"role": "user",   "content": user_prompt},
             ],
             "temperature": 0.7,
-            "max_tokens": max_tokens,
+            # Kuota lebih longgar utk provider custom — model reasoning (dsb.) sering
+            # menghabiskan token utk reasoning bila max_tokens terlalu kecil (content null)
+            "max_tokens": max(max_tokens, 2048),
         }
         provider_label = f"Custom Teks [{provider['label']}]"
     else:
@@ -1528,7 +1530,24 @@ async def generate_hook(
             )
             response.raise_for_status()
             data = response.json()
-            script = data["choices"][0]["message"]["content"].strip()
+            if data.get("error"):
+                raise HTTPException(status_code=502,
+                                    detail=f"API AI mengembalikan error: {str(data['error'])[:300]}")
+            choices = data.get("choices") or []
+            message = (choices[0].get("message") if choices else {}) or {}
+            raw_content = message.get("content")
+            if isinstance(raw_content, list):
+                # beberapa provider OpenAI-compatible mengirim [{type:'text', text:...}]
+                raw_content = "".join(p.get("text", "") for p in raw_content if isinstance(p, dict))
+            script = (raw_content or "").strip()
+            if not script:
+                logger.error("Hook content kosong/null: %s", json.dumps(data)[:500])
+                raise HTTPException(
+                    status_code=502,
+                    detail="Model tidak mengembalikan teks hook (content kosong/null). "
+                           "Coba model chat biasa (bukan model reasoning), atau naikkan kuota "
+                           "token provider.",
+                )
             script = _clean_hook_output(script, variation)
 
             log_id = append_hook_log(hook_type, variation, product_name, script)
@@ -1549,6 +1568,8 @@ async def generate_hook(
         except httpx.HTTPStatusError as e:
             logger.error("Pollinations API HTTP Error: %s", e)
             raise HTTPException(status_code=e.response.status_code, detail=f"API AI Error: {e.response.text}")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error("Error generating hook: %s", str(e))
             raise HTTPException(status_code=500, detail=f"Gagal generate hook: {str(e)}")
@@ -1905,8 +1926,10 @@ def fonts_delete(font_id: str, current_user: str = Depends(get_current_user)):
 # ══════════════════════════════════════════════════════════════════════════════
 from pydantic import BaseModel
 
-AI_CONFIG_FILE = BASE_DIR / "logs" / "ai_config.json"
+DB_PATH = BASE_DIR / "data" / "app.db"              # Database SQLite konfigurasi AI
+LEGACY_AI_CONFIG_FILE = BASE_DIR / "logs" / "ai_config.json"  # format lama (dimigrasi otomatis)
 AI_CONFIG_LOCK = threading.Lock()
+import sqlite3  # stdlib — penyimpanan konfigurasi AI
 
 
 class TextModelIn(BaseModel):
@@ -1932,24 +1955,103 @@ class ActiveTextModelIn(BaseModel):
     id: str = ""
 
 
-def _read_ai_config() -> dict:
-    if not AI_CONFIG_FILE.exists():
-        return {"text_models": [], "active_text_model": "", "voice_models": []}
+def _db() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_ai_db() -> None:
+    """Buat tabel SQLite konfigurasi AI + migrasi sekali jalan dari json lama."""
+    with _db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_models (
+                id            TEXT PRIMARY KEY,
+                kind          TEXT NOT NULL,
+                label         TEXT NOT NULL,
+                base_url      TEXT NOT NULL,
+                api_key       TEXT NOT NULL DEFAULT '',
+                model         TEXT NOT NULL,
+                voice         TEXT NOT NULL DEFAULT '',
+                speed         REAL NOT NULL DEFAULT 1.0,
+                endpoint_type TEXT NOT NULL DEFAULT 'speech',
+                created_at    REAL
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            )""")
+    _migrate_legacy_ai_json()
+
+
+def _migrate_legacy_ai_json() -> None:
+    """Migrasi logs/ai_config.json (format lama) -> SQLite, lalu file diarsipkan."""
+    if not LEGACY_AI_CONFIG_FILE.exists():
+        return
     try:
-        with open(AI_CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(LEGACY_AI_CONFIG_FILE, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        cfg.setdefault("text_models", [])
-        cfg.setdefault("voice_models", [])
-        cfg.setdefault("active_text_model", "")
-        return cfg
-    except Exception:
-        return {"text_models": [], "active_text_model": "", "voice_models": []}
+        with AI_CONFIG_LOCK, _db() as conn:
+            for kind_key, kind in (("text_models", "text"), ("voice_models", "voice")):
+                for m in cfg.get(kind_key, []) or []:
+                    if not m.get("id"):
+                        continue
+                    conn.execute(
+                        "INSERT OR IGNORE INTO ai_models "
+                        "(id, kind, label, base_url, api_key, model, voice, speed, endpoint_type, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (m["id"], kind, m.get("label", ""), m.get("base_url", ""), m.get("api_key", ""),
+                         m.get("model", ""), m.get("voice", "") or "",
+                         float(m.get("speed") or 1.0), m.get("endpoint_type") or "speech",
+                         m.get("uploaded_at") or time.time()),
+                    )
+            for key in ("active_text_model", "pollinations_text_model",
+                        "pollinations_audio_model", "edge_tts_voice"):
+                if cfg.get(key):
+                    conn.execute("INSERT OR IGNORE INTO ai_settings (key, value) VALUES (?,?)",
+                                 (key, str(cfg[key])))
+        LEGACY_AI_CONFIG_FILE.rename(LEGACY_AI_CONFIG_FILE.with_suffix(".json.migrated"))
+        logger.info("Migrasi konfigurasi AI (json -> SQLite) selesai.")
+    except Exception as e:
+        logger.error("Migrasi ai_config.json gagal (file dibiarkan): %s", e)
 
 
-def _write_ai_config(cfg: dict) -> None:
-    AI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(AI_CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+def _read_ai_config() -> dict:
+    """Baca konfigurasi AI dari SQLite -> dict (kompatibel format lama)."""
+    with _db() as conn:
+        rows = conn.execute("SELECT * FROM ai_models").fetchall()
+        settings = {r["key"]: r["value"] for r in conn.execute("SELECT * FROM ai_settings").fetchall()}
+    out = {
+        "text_models": [],
+        "voice_models": [],
+        "active_text_model": settings.get("active_text_model", ""),
+        "pollinations_text_model": settings.get("pollinations_text_model", ""),
+        "pollinations_audio_model": settings.get("pollinations_audio_model", ""),
+        "edge_tts_voice": settings.get("edge_tts_voice", ""),
+    }
+    for r in rows:
+        entry = {k: r[k] for k in ("id", "label", "base_url", "api_key", "model",
+                                   "voice", "speed", "endpoint_type")}
+        out["text_models" if r["kind"] == "text" else "voice_models"].append(entry)
+    return out
+
+
+def _get_ai_setting(key: str, default: str = "") -> str:
+    with _db() as conn:
+        row = conn.execute("SELECT value FROM ai_settings WHERE key=?", (key,)).fetchone()
+    return (row["value"] if row else None) or default
+
+
+def _set_ai_setting(key: str, value: str) -> None:
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO ai_settings (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+
+_init_ai_db()
 
 
 def _mask_key(key: str) -> str:
@@ -1987,41 +2089,46 @@ def _validate_base_url(url: str) -> str:
 
 
 def _upsert_ai_entry(kind: str, body) -> dict:
-    """kind: 'text_models' | 'voice_models'. Kosongkan api_key saat edit = pertahankan lama."""
+    """kind: 'text_models' | 'voice_models'. Kosongkan api_key saat edit = pertahankan lama. Tersimpan di SQLite."""
     base = _validate_base_url(body.base_url)
     label = (body.label or "").strip()
     model = (body.model or "").strip()
     if not label or not model:
         raise HTTPException(status_code=400, detail="Label dan model wajib diisi.")
     api_key = (body.api_key or "").strip()
+    kind_val = "text" if kind == "text_models" else "voice"
+    voice, speed, et = "", 1.0, "speech"
 
-    with AI_CONFIG_LOCK:
-        cfg = _read_ai_config()
-        entries = cfg[kind]
+    with AI_CONFIG_LOCK, _db() as conn:
+        row = None
         if body.id:
-            entry = next((e for e in entries if e.get("id") == body.id), None)
-            if not entry:
+            row = conn.execute("SELECT * FROM ai_models WHERE id=? AND kind=?",
+                               (body.id, kind_val)).fetchone()
+            if row is None:
                 raise HTTPException(status_code=404, detail=f"Model tidak ditemukan ({kind}).")
-        else:
-            entry = {"id": uuid.uuid4().hex}
-            entries.append(entry)
-        if not api_key and entry.get("api_key"):
-            api_key = entry["api_key"]
-        entry.update({"label": label, "base_url": base, "api_key": api_key, "model": model})
-        if kind == "voice_models":
+        if not api_key and row is not None:
+            api_key = row["api_key"] or ""
+        if kind_val == "voice":
             voice = (body.voice or "").strip()
             if not voice:
                 raise HTTPException(status_code=400, detail="Nama voice wajib diisi (mis. 'alloy', 'nova').")
-            entry["voice"] = voice
-            entry["speed"] = min(max(float(body.speed or 1.0), 0.25), 4.0)
+            speed = min(max(float(body.speed or 1.0), 0.25), 4.0)
             et = (getattr(body, "endpoint_type", None) or "speech").strip()
             if et not in ("speech", "chat_audio"):
                 raise HTTPException(status_code=400,
                                     detail="Jenis endpoint harus 'speech' (/audio/speech) atau "
                                            "'chat_audio' (chat/completions + modalities audio).")
-            entry["endpoint_type"] = et
-        _write_ai_config(cfg)
-    return _public_entry(entry)
+        entry_id = body.id or uuid.uuid4().hex
+        conn.execute(
+            "INSERT INTO ai_models (id, kind, label, base_url, api_key, model, voice, speed, endpoint_type, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET label=excluded.label, base_url=excluded.base_url, "
+            "api_key=excluded.api_key, model=excluded.model, voice=excluded.voice, "
+            "speed=excluded.speed, endpoint_type=excluded.endpoint_type",
+            (entry_id, kind_val, label, base, api_key, model, voice, speed, et, time.time()))
+    logger.info("AI %s model saved: %s (%s)", kind_val, entry_id, label)
+    return _public_entry({"id": entry_id, "label": label, "base_url": base, "api_key": api_key,
+                          "model": model, "voice": voice, "speed": speed, "endpoint_type": et})
 
 
 @app.get("/api/ai-config")
@@ -2031,6 +2138,7 @@ def get_ai_config(current_user: str = Depends(get_current_user)):
         cfg = _read_ai_config()
     out = _public_ai_config(cfg)
     out["pollinations_key_set"] = bool(POLLINATIONS_API_KEY)
+    out["pollinations_url"] = POLLINATIONS_API_URL
     out["defaults"] = {
         "pollinations_text_model": cfg.get("pollinations_text_model") or "openai",
         "pollinations_audio_model": cfg.get("pollinations_audio_model") or "openai-audio",
@@ -2126,8 +2234,17 @@ async def test_ai_connection(body: ConnTestIn, current_user: str = Depends(get_c
                 r = await client.post(chat_url, headers=headers, json=payload, timeout=20.0)
                 r.raise_for_status()
                 data = r.json()
+                if data.get("error"):
+                    return _done(False, f"API mengembalikan error: {str(data['error'])[:200]}")
                 if not (data.get("choices") or []):
                     return _done(False, "Respons tanpa 'choices' — cek base URL / model.")
+                message = ((data.get("choices") or [{}])[0].get("message") or {})
+                content = message.get("content")
+                if isinstance(content, list):
+                    content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+                if not (content or "").strip():
+                    return _done(False, "Model merespons tapi content kosong/null — "
+                                       "coba model chat biasa (bukan model reasoning).")
                 return _done(True, f"Model teks '{model}' merespons.")
             if kind == "voice_speech":
                 r = await client.post(f"{base}/audio/speech", headers=headers, json={
@@ -2170,19 +2287,17 @@ def set_ai_defaults(body: DefaultsIn, current_user: str = Depends(get_current_us
     voice Edge-TTS bisa diganti. Field kosong = pertahankan nilai tersimpan.
     """
     with AI_CONFIG_LOCK:
-        cfg = _read_ai_config()
         if (body.pollinations_text_model or "").strip():
-            cfg["pollinations_text_model"] = body.pollinations_text_model.strip()
+            _set_ai_setting("pollinations_text_model", body.pollinations_text_model.strip())
         if (body.pollinations_audio_model or "").strip():
-            cfg["pollinations_audio_model"] = body.pollinations_audio_model.strip()
+            _set_ai_setting("pollinations_audio_model", body.pollinations_audio_model.strip())
         if (body.edge_tts_voice or "").strip():
-            cfg["edge_tts_voice"] = body.edge_tts_voice.strip()
-        _write_ai_config(cfg)
-        saved = {
-            "pollinations_text_model": cfg.get("pollinations_text_model") or "openai",
-            "pollinations_audio_model": cfg.get("pollinations_audio_model") or "openai-audio",
-            "edge_tts_voice": cfg.get("edge_tts_voice") or "id-ID-GadisNeural",
-        }
+            _set_ai_setting("edge_tts_voice", body.edge_tts_voice.strip())
+    saved = {
+        "pollinations_text_model": _get_ai_setting("pollinations_text_model", "openai"),
+        "pollinations_audio_model": _get_ai_setting("pollinations_audio_model", "openai-audio"),
+        "edge_tts_voice": _get_ai_setting("edge_tts_voice", "id-ID-GadisNeural"),
+    }
     logger.info("AI defaults updated: %s", saved)
     return {"status": "success", "defaults": saved}
 
@@ -2195,15 +2310,15 @@ def upsert_text_model(body: TextModelIn, current_user: str = Depends(get_current
 
 @app.delete("/api/ai-config/text-models/{model_id}")
 def delete_text_model(model_id: str, current_user: str = Depends(get_current_user)):
-    with AI_CONFIG_LOCK:
-        cfg = _read_ai_config()
-        before = len(cfg["text_models"])
-        cfg["text_models"] = [m for m in cfg["text_models"] if m.get("id") != model_id]
-        if len(cfg["text_models"]) == before:
+    with AI_CONFIG_LOCK, _db() as conn:
+        row = conn.execute("SELECT id FROM ai_models WHERE id=? AND kind='text'", (model_id,)).fetchone()
+        if row is None:
             raise HTTPException(status_code=404, detail="Model teks tidak ditemukan.")
-        if cfg.get("active_text_model") == model_id:
-            cfg["active_text_model"] = ""
-        _write_ai_config(cfg)
+        conn.execute("DELETE FROM ai_models WHERE id=?", (model_id,))
+        active = conn.execute("SELECT value FROM ai_settings WHERE key='active_text_model'").fetchone()
+        if active and active["value"] == model_id:
+            conn.execute("INSERT INTO ai_settings (key, value) VALUES ('active_text_model','') "
+                         "ON CONFLICT(key) DO UPDATE SET value=''")
     logger.info("AI text model deleted: %s", model_id)
     return {"status": "ok", "deleted_id": model_id}
 
@@ -2216,13 +2331,11 @@ def upsert_voice_model(body: VoiceModelIn, current_user: str = Depends(get_curre
 
 @app.delete("/api/ai-config/voice-models/{model_id}")
 def delete_voice_model(model_id: str, current_user: str = Depends(get_current_user)):
-    with AI_CONFIG_LOCK:
-        cfg = _read_ai_config()
-        before = len(cfg["voice_models"])
-        cfg["voice_models"] = [m for m in cfg["voice_models"] if m.get("id") != model_id]
-        if len(cfg["voice_models"]) == before:
+    with AI_CONFIG_LOCK, _db() as conn:
+        row = conn.execute("SELECT id FROM ai_models WHERE id=? AND kind='voice'", (model_id,)).fetchone()
+        if row is None:
             raise HTTPException(status_code=404, detail="Model suara tidak ditemukan.")
-        _write_ai_config(cfg)
+        conn.execute("DELETE FROM ai_models WHERE id=?", (model_id,))
     logger.info("AI voice model deleted: %s", model_id)
     return {"status": "ok", "deleted_id": model_id}
 
@@ -2231,13 +2344,14 @@ def delete_voice_model(model_id: str, current_user: str = Depends(get_current_us
 def set_active_text_model(body: ActiveTextModelIn, current_user: str = Depends(get_current_user)):
     """Pilih model teks aktif untuk hook. id='' = Pollinations (bawaan)."""
     model_id = (body.id or "").strip()
-    with AI_CONFIG_LOCK:
-        cfg = _read_ai_config()
+    with AI_CONFIG_LOCK, _db() as conn:
         if model_id:
-            if not any(m.get("id") == model_id for m in cfg["text_models"]):
+            row = conn.execute("SELECT id FROM ai_models WHERE id=? AND kind='text'",
+                               (model_id,)).fetchone()
+            if row is None:
                 raise HTTPException(status_code=404, detail="Model teks tidak ditemukan.")
-        cfg["active_text_model"] = model_id
-        _write_ai_config(cfg)
+        conn.execute("INSERT INTO ai_settings (key, value) VALUES ('active_text_model',?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (model_id,))
     logger.info("AI active text model set: %s", model_id or "(pollinations default)")
     return {"status": "ok", "active_text_model": model_id}
 

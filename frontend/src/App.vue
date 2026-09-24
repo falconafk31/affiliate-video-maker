@@ -33,6 +33,12 @@
             class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
             [ Logs ]
           </router-link>
+          <router-link
+            to="/setting"
+            active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
+            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            [ Setting ]
+          </router-link>
         </nav>
       </div>
     </header>

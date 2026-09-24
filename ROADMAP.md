@@ -18,6 +18,7 @@ Versi rilis dan isinya terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).
 - 🟢 **v0.3.0** — **Custom Subtitle Style** (ukuran/warna/outline/posisi/kapital) + **Custom Font Import** (`.ttf/.otf/.ttc`, family auto-detect, `fontsdir` tanpa instalasi sistem) + balanced line wrap + sidecar `.ass` + test font (E2E/unit) + dokumentasi lengkap.
 - 🟢 **v0.4.0** — **Custom AI Provider (OpenAI-compatible)**: model teks (hook) terpisah dari model suara (voiceover) — masing-masing bisa pakai provider sendiri (Base URL + API Key + Model bebas); 1 model teks aktif + daftar voice model custom (`custom:{id}`); panel ⚙️ Kelola AI Model; API key ter-mask; `POLLINATIONS_API_KEY` jadi opsional; E2E fake OpenAI server.
 - 🟢 **v0.5.0** — **Test Koneksi provider** (🧪 sebelum simpan, `{ok, message, latency_ms}`) + **dua jenis endpoint voice custom** (`/audio/speech` standar ATAU `/chat/completions` + modalities audio gpt-4o-audio style) + **semua model tidak hardcode** (model teks & suara Pollinations serta voice Edge-TTS configurable via "Model Bawaan").
+- 🟢 **v0.6.0** — **Halaman `/setting` (Kelola AI Model)** — nav `[ Setting ]`, modal di home dihapus, panel "Endpoint yang digunakan" + **penyimpanan konfigurasi di database SQLite** (`backend/data/app.db`, tabel `ai_models` + `ai_settings`, migrasi otomatis dari json lama).
 
 ---
 
