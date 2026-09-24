@@ -1,11 +1,15 @@
 """
 E2E offline untuk pipeline job video + Auto Subtitle + Custom Font/Style +
-Custom AI Provider (OpenAI-compatible teks & suara). TTS bawaan di-stub (audio
-sine) — jalur custom memakai fake OpenAI server sungguhan di localhost.
+Custom AI Provider (OpenAI-compatible teks & suara, termasuk endpoint
+chat-completions audio modalities + test koneksi + model bawaan configurable).
+
+TTS bawaan di-stub (audio sine) — jalur custom & uji koneksi memakai fake
+OpenAI server sungguhan di localhost.
 
 Jalankan:  cd backend && ../.venv/bin/python test_api_e2e.py
 """
 import asyncio
+import base64
 import json
 import re
 import subprocess
@@ -59,7 +63,8 @@ def make_test_font(path: Path, family: str = "TestSubtitleFont") -> None:
 
 
 # ── Fake OpenAI-compatible server (chat/completions + audio/speech) ───────────
-FAKE_STATE = {"chat_model": None, "chat_auth": None, "speech": None, "speech_auth": None}
+FAKE_STATE = {"chat_model": None, "chat_auth": None, "chat_audio": None,
+              "speech": None, "speech_auth": None}
 FAKE_MP3: Path | None = None
 
 
@@ -75,11 +80,23 @@ class FakeAIHandler(BaseHTTPRequestHandler):
             body = {}
         path = self.path.rstrip("/")
         if path.endswith("/chat/completions"):
-            FAKE_STATE["chat_model"] = body.get("model")
-            FAKE_STATE["chat_auth"] = self.headers.get("Authorization", "")
-            out = json.dumps({
-                "choices": [{"message": {"content": "Cek kipas mini ini, baterainya awet dua hari penuh!"}}]
-            }).encode()
+            if body.get("modalities"):
+                # Jalur chat-audio (modalities) → balas dengan audio base64
+                audio_part = (body.get("audio") or {})
+                FAKE_STATE["chat_audio"] = {"model": body.get("model"), "voice": audio_part.get("voice"),
+                                            "auth": self.headers.get("Authorization", "")}
+                out = json.dumps({
+                    "choices": [{"message": {
+                        "role": "assistant",
+                        "audio": {"data": base64.b64encode(FAKE_MP3.read_bytes()).decode()},
+                    }}]
+                }).encode()
+            else:
+                FAKE_STATE["chat_model"] = body.get("model")
+                FAKE_STATE["chat_auth"] = self.headers.get("Authorization", "")
+                out = json.dumps({
+                    "choices": [{"message": {"content": "Cek kipas mini ini, baterainya awet dua hari penuh!"}}]
+                }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -101,8 +118,9 @@ class FakeAIHandler(BaseHTTPRequestHandler):
 
 
 async def fake_generate_voice(prompt, voice_model, output_path):
-    """Stub TTS bawaan; jalur custom: diteruskan ke fungsi ASLI (uji integrasi nyata)."""
-    if str(voice_model).startswith("custom:"):
+    """Stub TTS bawaan; jalur custom & openai-audio: diteruskan ke fungsi ASLI."""
+    vm = str(voice_model)
+    if vm.startswith("custom:") or vm.startswith("openai-audio"):
         return await real_generate_voice(prompt, voice_model, output_path)
     words = re.findall(r"\S+", prompt)
     dur = max(2.0, 0.32 * len(words))
@@ -260,7 +278,28 @@ async def run() -> None:
             port = server.server_address[1]
             threading.Thread(target=server.serve_forever, daemon=True).start()
             base_url = f"http://127.0.0.1:{port}/v1"
+
+            old_poll_url, old_poll_key = main.POLLINATIONS_API_URL, main.POLLINATIONS_API_KEY
             try:
+                # ── Test koneksi (tombol 🧪) ─────────────────────────────────
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "text", "base_url": base_url,
+                    "api_key": "sk-test-secret-123456", "model": "fake-gpt"})
+                check("test koneksi text → ok", r.status_code == 200 and r.json().get("ok") is True,
+                      r.text[:150])
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "voice_speech", "base_url": base_url,
+                    "api_key": "sk-voice-key-999", "model": "fake-tts", "voice": "mini-voice"})
+                check("test koneksi voice_speech → ok", r.json().get("ok") is True, r.text[:150])
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "voice_chat_audio", "base_url": base_url,
+                    "api_key": "sk-audio-key-1", "model": "fake-audio", "voice": "mini-voice"})
+                check("test koneksi voice_chat_audio → ok", r.json().get("ok") is True, r.text[:150])
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "text", "base_url": "http://127.0.0.1:1/v1", "api_key": "x", "model": "m"})
+                check("test koneksi gagal → ok:false (bukan exception)", r.json().get("ok") is False,
+                      r.text[:150])
+
                 # Model teks custom
                 r = await client.post("/api/ai-config/text-models", headers=auth, json={
                     "label": "Fake LLM", "base_url": base_url,
@@ -297,24 +336,24 @@ async def run() -> None:
                 check("edit tanpa key → key lama tetap (has_key)",
                       any(m["id"] == tid and m["has_key"] for m in r.json()["text_models"]))
 
-                # Model suara custom
+                # Model suara custom — endpoint standar /audio/speech
                 r = await client.post("/api/ai-config/voice-models", headers=auth, json={
                     "label": "Fake TTS", "base_url": base_url,
                     "api_key": "sk-voice-key-999", "model": "fake-tts",
-                    "voice": "mini-voice", "speed": 1.0})
+                    "voice": "mini-voice", "speed": 1.0, "endpoint_type": "speech"})
                 check("POST voice-models → 200 + id", r.status_code == 200
                       and r.json().get("model", {}).get("id"), r.text[:150])
                 vid_custom = r.json()["model"]["id"]
 
-                # Job 4: voice custom OpenAI-compatible
+                # Job 4: voice custom OpenAI-compatible (/audio/speech)
                 with open(raw, "rb") as f:
                     done4 = await wait_job(client, auth,
                         {"prompt_text": script, "voice_model": f"custom:{vid_custom}",
                          "duration_mode": "auto", "burn_subtitles": "false"},
                         {"video": ("raw.mp4", f, "video/mp4")})
-                check("Job 4 (custom voice) → done", done4.get("status") == "done",
+                check("Job 4 (custom voice speech) → done", done4.get("status") == "done",
                       str(done4.get("error") or done4.get("status")))
-                check("TTS custom: model+voice sesuai konfigurasi + auth",
+                check("TTS /audio/speech: model+voice sesuai konfigurasi + auth",
                       FAKE_STATE["speech"] and FAKE_STATE["speech"]["model"] == "fake-tts"
                       and FAKE_STATE["speech"]["voice"] == "mini-voice"
                       and FAKE_STATE["speech_auth"] == "Bearer sk-voice-key-999",
@@ -331,18 +370,88 @@ async def run() -> None:
                       and "tidak ditemukan" in (done5.get("error") or ""),
                       str(done5.get("error")))
 
-                # Kembalikan ke default + bersihkan konfigurasi
+                # Model suara custom — endpoint chat_audio (modalities)
+                r = await client.post("/api/ai-config/voice-models", headers=auth, json={
+                    "label": "Fake Audio-Chat TTS", "base_url": base_url,
+                    "api_key": "sk-audio-key-222", "model": "fake-audio-model",
+                    "voice": "chat-voice", "endpoint_type": "chat_audio"})
+                vid_chat = r.json()["model"]["id"]
+                with open(raw, "rb") as f:
+                    done6 = await wait_job(client, auth,
+                        {"prompt_text": script, "voice_model": f"custom:{vid_chat}",
+                         "duration_mode": "auto", "burn_subtitles": "false"},
+                        {"video": ("raw.mp4", f, "video/mp4")})
+                check("Job 6 (custom voice chat_audio) → done", done6.get("status") == "done",
+                      str(done6.get("error") or done6.get("status")))
+                check("TTS chat/completions+audio: model+voice+auth benar",
+                      FAKE_STATE["chat_audio"] and FAKE_STATE["chat_audio"]["model"] == "fake-audio-model"
+                      and FAKE_STATE["chat_audio"]["voice"] == "chat-voice"
+                      and FAKE_STATE["chat_audio"]["auth"] == "Bearer sk-audio-key-222",
+                      str(FAKE_STATE["chat_audio"]))
+
+                # ── Model bawaan tidak hardcode (Pollinations teks & audio) ──
+                main.POLLINATIONS_API_URL = base_url  # patch → fake server
+                main.POLLINATIONS_API_KEY = "sk-poll-test"
+                r = await client.post("/api/ai-config/defaults", headers=auth, json={
+                    "pollinations_text_model": "my-text-model",
+                    "pollinations_audio_model": "my-audio-model",
+                    "edge_tts_voice": "id-ID-ArdiNeural"})
+                check("POST defaults → 200", r.status_code == 200, r.text[:120])
+                r = await client.get("/api/ai-config", headers=auth)
+                d = r.json().get("defaults", {})
+                check("GET defaults: model bawaan tersimpan",
+                      d.get("pollinations_text_model") == "my-text-model"
+                      and d.get("pollinations_audio_model") == "my-audio-model"
+                      and d.get("edge_tts_voice") == "id-ID-ArdiNeural", str(d))
+
+                # hook bawaan memakai model yang dikonfigurasi (bukan "openai" hardcoded)
                 r = await client.post("/api/ai-config/active-text-model",
                                       headers=auth, json={"id": ""})
-                check("reset model teks ke bawaan", r.json().get("active_text_model") == "")
+                r = await client.post("/api/generate-hook", headers=auth, data={
+                    "product_name": "Kipas Mini 2000", "hook_type": "tiktok", "variation": "viral"})
+                check("hook bawaan memakai pollinations_text_model config",
+                      r.status_code == 200 and FAKE_STATE["chat_model"] == "my-text-model",
+                      str(FAKE_STATE["chat_model"]))
+
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "pollinations_text", "model": "my-text-model"})
+                check("test koneksi pollinations_text → ok", r.json().get("ok") is True, r.text[:120])
+                r = await client.post("/api/ai-config/test", headers=auth, json={
+                    "kind": "pollinations_audio", "model": "my-audio-model", "voice": "nova"})
+                check("test koneksi pollinations_audio → ok", r.json().get("ok") is True, r.text[:120])
+
+                # GPT-Audio bawaan memakai pollinations_audio_model config
+                FAKE_STATE["chat_audio"] = None
+                with open(raw, "rb") as f:
+                    done7 = await wait_job(client, auth,
+                        {"prompt_text": script, "voice_model": "openai-audio:nova",
+                         "duration_mode": "auto", "burn_subtitles": "false"},
+                        {"video": ("raw.mp4", f, "video/mp4")})
+                check("Job 7 (GPT-Audio bawaan) → done", done7.get("status") == "done",
+                      str(done7.get("error") or done7.get("status")))
+                check("GPT-Audio memakai pollinations_audio_model config (bukan hardcoded)",
+                      FAKE_STATE["chat_audio"] and FAKE_STATE["chat_audio"]["model"] == "my-audio-model"
+                      and FAKE_STATE["chat_audio"]["voice"] == "nova", str(FAKE_STATE["chat_audio"]))
+
+                main.POLLINATIONS_API_URL, main.POLLINATIONS_API_KEY = old_poll_url, old_poll_key
+
+                # Kembalikan ke default + bersihkan konfigurasi
+                r = await client.post("/api/ai-config/defaults", headers=auth, json={
+                    "pollinations_text_model": "openai",
+                    "pollinations_audio_model": "openai-audio",
+                    "edge_tts_voice": "id-ID-GadisNeural"})
+                check("reset defaults → ok", r.status_code == 200)
                 r = await client.delete(f"/api/ai-config/text-models/{tid}", headers=auth)
                 check("DELETE text-models → ok", r.status_code == 200)
                 r = await client.delete(f"/api/ai-config/voice-models/{vid_custom}", headers=auth)
-                check("DELETE voice-models → ok", r.status_code == 200)
+                check("DELETE voice-models (speech) → ok", r.status_code == 200)
+                r = await client.delete(f"/api/ai-config/voice-models/{vid_chat}", headers=auth)
+                check("DELETE voice-models (chat_audio) → ok", r.status_code == 200)
                 r = await client.get("/api/ai-config", headers=auth)
                 check("konfigurasi bersih setelah dihapus",
                       not r.json()["text_models"] and not r.json()["voice_models"])
             finally:
+                main.POLLINATIONS_API_URL, main.POLLINATIONS_API_KEY = old_poll_url, old_poll_key
                 server.shutdown()
 
             # bersihkan artefak test

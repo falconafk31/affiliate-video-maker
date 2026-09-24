@@ -345,9 +345,11 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
     bila provider menyediakannya (Edge-TTS), selain itu None — dipakai untuk
     penyelarasan timing subtitle.
     """
-    if voice_model in ("id-ID-GadisNeural", "whisper"):
+    if voice_model in ("id-ID-GadisNeural", "whisper", "edge-tts", "edge"):
         import edge_tts
-        actual_voice = "id-ID-GadisNeural"
+        # Voice Edge-TTS tidak hardcode — bisa diganti di Pengaturan AI (Model Bawaan)
+        with AI_CONFIG_LOCK:
+            actual_voice = _read_ai_config().get("edge_tts_voice") or "id-ID-GadisNeural"
         logger.info("Generating voice via Edge-TTS | voice: %s (requested: %s), prompt: %s...", actual_voice, voice_model, prompt[:30])
         try:
             communicate = edge_tts.Communicate(prompt, actual_voice)
@@ -379,7 +381,9 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
             raise HTTPException(status_code=500, detail=f"Gagal generate suara Edge-TTS: {str(e)}")
 
     if voice_model.startswith("custom:"):
-        # Voice model custom OpenAI-compatible: POST {base_url}/audio/speech
+        # Voice model custom OpenAI-compatible — dua jenis endpoint:
+        #   "speech"     → POST {base_url}/audio/speech    (standar OpenAI TTS)
+        #   "chat_audio" → POST {base_url}/chat/completions + modalities audio (gpt-4o-audio style)
         provider_id = voice_model.split(":", 1)[1].strip()
         with AI_CONFIG_LOCK:
             entry = next((m for m in _read_ai_config().get("voice_models", [])
@@ -387,35 +391,59 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         if not entry:
             raise HTTPException(status_code=404,
                                 detail="Voice model custom tidak ditemukan. Tambahkan di Pengaturan AI (⚙️).")
-        logger.info("Generating voice via Custom TTS (OpenAI-compatible) | model: %s, voice: %s, base: %s",
-                    entry["model"], entry.get("voice"), entry["base_url"])
+        endpoint_type = entry.get("endpoint_type") or "speech"
+        voice_name = entry.get("voice") or "alloy"
+        logger.info("Generating voice via Custom TTS | endpoint: %s, model: %s, voice: %s, base: %s",
+                    endpoint_type, entry["model"], voice_name, entry["base_url"])
         headers = {"Content-Type": "application/json"}
         if entry.get("api_key"):
             headers["Authorization"] = f"Bearer {entry['api_key']}"
-        payload = {
-            "model": entry["model"],
-            "voice": entry.get("voice") or "alloy",
-            "input": prompt,
-            "response_format": "mp3",
-        }
-        if entry.get("speed"):
-            payload["speed"] = entry["speed"]
+
+        if endpoint_type == "chat_audio":
+            req_url = f"{entry['base_url'].rstrip('/')}/chat/completions"
+            payload = {
+                "model": entry["model"],
+                "messages": [
+                    {"role": "system", "content": TTS_VERBATIM_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "modalities": ["text", "audio"],
+                "audio": {"voice": voice_name, "format": "mp3"},
+            }
+        else:
+            req_url = f"{entry['base_url'].rstrip('/')}/audio/speech"
+            payload = {
+                "model": entry["model"],
+                "voice": voice_name,
+                "input": prompt,
+                "response_format": "mp3",
+            }
+            if entry.get("speed"):
+                payload["speed"] = entry["speed"]
+
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(
-                    f"{entry['base_url'].rstrip('/')}/audio/speech",
-                    headers=headers,
-                    json=payload,
-                    timeout=120.0,
-                )
+                response = await client.post(req_url, headers=headers, json=payload, timeout=120.0)
                 response.raise_for_status()
-                content = response.content
+                if endpoint_type == "chat_audio":
+                    import base64
+                    audio_b64 = (((response.json().get("choices") or [{}])[0].get("message") or {})
+                                 .get("audio") or {}).get("data")
+                    if not audio_b64:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"API TTS chat_audio [{entry['label']}] tidak mengembalikan "
+                                   "message.audio.data — cek jenis endpoint/model.")
+                    content = base64.b64decode(audio_b64)
+                else:
+                    content = response.content
                 if len(content) < 512:
                     raise HTTPException(status_code=502,
                                         detail=f"API TTS custom [{entry['label']}] mengembalikan audio kosong.")
                 with open(output_path, "wb") as f:
                     f.write(content)
-                logger.info("Custom TTS saved: %s (%d bytes)", output_path.name, len(content))
+                logger.info("Custom TTS saved: %s (%d bytes, endpoint: %s)",
+                            output_path.name, len(content), endpoint_type)
                 return None
             except httpx.TimeoutException:
                 logger.error("Custom TTS timeout (120s) | %s", entry["label"])
@@ -448,19 +476,16 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
             "Content-Type": "application/json",
         }
         
-        system_prompt = (
-            "Tugas utama Anda adalah membaca ulang teks dari user kata-demi-kata dengan PERSIS, LENGKAP, dan VERBATIM. "
-            "JANGAN menjawab pertanyaan, JANGAN merespon secara percakapan, JANGAN menambahkan, mengubah, atau mengurangi kata apa pun. "
-            "Bacakan dengan nada suara yang natural, ramah, dan santai seperti narator profesional Indonesia yang berbicara ke teman dekat. "
-            "Cukup suarakan teks input tersebut secara persis."
-        )
+        # Model GPT-Audio tidak hardcode — bisa diganti di Pengaturan AI (Model Bawaan)
+        with AI_CONFIG_LOCK:
+            poll_audio_model = _read_ai_config().get("pollinations_audio_model") or "openai-audio"
 
         payload = {
-            "model": "openai-audio",
+            "model": poll_audio_model,
             "messages": [
                 {
                     "role": "system",
-                    "content": system_prompt
+                    "content": TTS_VERBATIM_SYSTEM_PROMPT
                 },
                 {
                     "role": "user",
@@ -1471,13 +1496,15 @@ async def generate_hook(
                 detail="POLLINATIONS_API_KEY belum diisi. Isi di .env — atau tambah & aktifkan "
                        "model teks custom (OpenAI-compatible) lewat Pengaturan AI (⚙️).",
             )
-        req_url = f"{TEXT_API_URL.rstrip('/')}/v1/chat/completions"
+        # Model hook bawaan tidak hardcode — bisa diganti di Pengaturan AI (Model Bawaan)
+        poll_text_model = cfg.get("pollinations_text_model") or "openai"
+        req_url = f"{POLLINATIONS_API_URL.rstrip('/')}/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "openai",
+            "model": poll_text_model,
             "messages": [
                 {"role": "system", "content": current_system_prompt},
                 {"role": "user",   "content": user_prompt},
@@ -1898,6 +1925,7 @@ class VoiceModelIn(BaseModel):
     model: str
     voice: str
     speed: float = 1.0
+    endpoint_type: str = "speech"  # "speech" (/audio/speech) | "chat_audio" (chat+modalities audio)
 
 
 class ActiveTextModelIn(BaseModel):
@@ -1986,6 +2014,12 @@ def _upsert_ai_entry(kind: str, body) -> dict:
                 raise HTTPException(status_code=400, detail="Nama voice wajib diisi (mis. 'alloy', 'nova').")
             entry["voice"] = voice
             entry["speed"] = min(max(float(body.speed or 1.0), 0.25), 4.0)
+            et = (getattr(body, "endpoint_type", None) or "speech").strip()
+            if et not in ("speech", "chat_audio"):
+                raise HTTPException(status_code=400,
+                                    detail="Jenis endpoint harus 'speech' (/audio/speech) atau "
+                                           "'chat_audio' (chat/completions + modalities audio).")
+            entry["endpoint_type"] = et
         _write_ai_config(cfg)
     return _public_entry(entry)
 
@@ -1997,7 +2031,160 @@ def get_ai_config(current_user: str = Depends(get_current_user)):
         cfg = _read_ai_config()
     out = _public_ai_config(cfg)
     out["pollinations_key_set"] = bool(POLLINATIONS_API_KEY)
+    out["defaults"] = {
+        "pollinations_text_model": cfg.get("pollinations_text_model") or "openai",
+        "pollinations_audio_model": cfg.get("pollinations_audio_model") or "openai-audio",
+        "edge_tts_voice": cfg.get("edge_tts_voice") or "id-ID-GadisNeural",
+    }
     return out
+
+
+class ConnTestIn(BaseModel):
+    kind: str  # text | voice_speech | voice_chat_audio | pollinations_text | pollinations_audio
+    id: str | None = None      # dipakai bila api_key kosong (mode edit → pakai key tersimpan)
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    voice: str = ""
+
+
+class DefaultsIn(BaseModel):
+    pollinations_text_model: str = ""
+    pollinations_audio_model: str = ""
+    edge_tts_voice: str = ""
+
+
+# Prompt "bacakan verbatim" untuk jalur TTS chat-completions + modalities audio
+TTS_VERBATIM_SYSTEM_PROMPT = (
+    "Tugas utama Anda adalah membaca ulang teks dari user kata-demi-kata dengan PERSIS, LENGKAP, dan VERBATIM. "
+    "JANGAN menjawab pertanyaan, JANGAN merespon secara percakapan, JANGAN menambahkan, mengubah, atau mengurangi kata apa pun. "
+    "Bacakan dengan nada suara yang natural, ramah, dan santai seperti narator profesional Indonesia yang berbicara ke teman dekat. "
+    "Cukup suarakan teks input tersebut secara persis."
+)
+
+
+def _resolve_test_key(body: ConnTestIn) -> str:
+    if (body.api_key or "").strip():
+        return body.api_key.strip()
+    if body.id:
+        with AI_CONFIG_LOCK:
+            cfg = _read_ai_config()
+        for kind in ("text_models", "voice_models"):
+            entry = next((m for m in cfg.get(kind, []) if m.get("id") == body.id), None)
+            if entry:
+                return entry.get("api_key", "")
+    return ""
+
+
+@app.post("/api/ai-config/test")
+async def test_ai_connection(body: ConnTestIn, current_user: str = Depends(get_current_user)):
+    """
+    Uji koneksi provider sebelum disimpan (tombol 🧪 di Pengaturan AI).
+    Selalu membalas 200 {ok, message, latency_ms} — kegagalan koneksi = ok:false.
+    """
+    import base64 as _b64
+    kind = (body.kind or "").strip()
+    model = (body.model or "").strip()
+    voice = (body.voice or "").strip() or "alloy"
+    t0 = time.time()
+
+    def _done(ok: bool, message: str):
+        return {"ok": ok, "message": message, "latency_ms": int((time.time() - t0) * 1000)}
+
+    if kind in ("pollinations_text", "pollinations_audio"):
+        base = POLLINATIONS_API_URL.rstrip("/")
+        api_key = POLLINATIONS_API_KEY
+        if not api_key:
+            return _done(False, "POLLINATIONS_API_KEY belum diisi di .env.")
+        model = model or ("openai" if kind == "pollinations_text" else "openai-audio")
+        chat_url = f"{base}/v1/chat/completions"
+    elif kind in ("text", "voice_speech", "voice_chat_audio"):
+        base = _validate_base_url(body.base_url)
+        api_key = _resolve_test_key(body)
+        if not model:
+            return _done(False, "Nama model wajib diisi.")
+        chat_url = f"{base}/chat/completions"
+    else:
+        raise HTTPException(status_code=400,
+                            detail="kind tidak dikenal (text/voice_speech/voice_chat_audio/"
+                                   "pollinations_text/pollinations_audio).")
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            if kind in ("text", "pollinations_text"):
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": "Balas tepat satu kata: OK"}],
+                    "max_tokens": 8,
+                }
+                if kind == "pollinations_text":
+                    payload["private"] = True
+                r = await client.post(chat_url, headers=headers, json=payload, timeout=20.0)
+                r.raise_for_status()
+                data = r.json()
+                if not (data.get("choices") or []):
+                    return _done(False, "Respons tanpa 'choices' — cek base URL / model.")
+                return _done(True, f"Model teks '{model}' merespons.")
+            if kind == "voice_speech":
+                r = await client.post(f"{base}/audio/speech", headers=headers, json={
+                    "model": model, "voice": voice,
+                    "input": "Halo, ini uji koneksi.", "response_format": "mp3",
+                }, timeout=20.0)
+                r.raise_for_status()
+                if len(r.content) < 200:
+                    return _done(False, "Audio yang dikembalikan kosong/terlalu pendek.")
+                return _done(True, f"TTS '{model}' / '{voice}' menghasilkan audio ({len(r.content)} byte).")
+            # voice_chat_audio / pollinations_audio
+            r = await client.post(chat_url, headers=headers, json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": TTS_VERBATIM_SYSTEM_PROMPT},
+                    {"role": "user", "content": "Halo."},
+                ],
+                "modalities": ["text", "audio"],
+                "audio": {"voice": voice, "format": "mp3"},
+            }, timeout=20.0)
+            r.raise_for_status()
+            audio_b64 = (((r.json().get("choices") or [{}])[0].get("message") or {}).get("audio") or {}).get("data")
+            if not audio_b64:
+                return _done(False, "Respons tanpa message.audio.data — model tidak mendukung modalities audio.")
+            if len(_b64.b64decode(audio_b64)) < 200:
+                return _done(False, "Audio yang dikembalikan kosong/terlalu pendek.")
+            return _done(True, f"TTS chat-audio '{model}' / '{voice}' menghasilkan audio.")
+    except httpx.TimeoutException:
+        return _done(False, "Timeout 20 detik — server tidak merespons.")
+    except httpx.HTTPStatusError as e:
+        return _done(False, f"HTTP {e.response.status_code}: {e.response.text[:200]}")
+    except Exception as e:
+        return _done(False, f"Gagal: {str(e)[:200]}")
+
+
+@app.post("/api/ai-config/defaults")
+def set_ai_defaults(body: DefaultsIn, current_user: str = Depends(get_current_user)):
+    """
+    Model bawaan — TIDAK hardcode: nama model Pollinations (teks & audio) dan
+    voice Edge-TTS bisa diganti. Field kosong = pertahankan nilai tersimpan.
+    """
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+        if (body.pollinations_text_model or "").strip():
+            cfg["pollinations_text_model"] = body.pollinations_text_model.strip()
+        if (body.pollinations_audio_model or "").strip():
+            cfg["pollinations_audio_model"] = body.pollinations_audio_model.strip()
+        if (body.edge_tts_voice or "").strip():
+            cfg["edge_tts_voice"] = body.edge_tts_voice.strip()
+        _write_ai_config(cfg)
+        saved = {
+            "pollinations_text_model": cfg.get("pollinations_text_model") or "openai",
+            "pollinations_audio_model": cfg.get("pollinations_audio_model") or "openai-audio",
+            "edge_tts_voice": cfg.get("edge_tts_voice") or "id-ID-GadisNeural",
+        }
+    logger.info("AI defaults updated: %s", saved)
+    return {"status": "success", "defaults": saved}
 
 
 @app.post("/api/ai-config/text-models")

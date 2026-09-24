@@ -12,6 +12,36 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.0] - 2026-09-24
+
+**Test koneksi provider, endpoint chat-audio (modalities), dan semua model tidak hardcode.**
+
+### Added
+- **🧪 Test Koneksi** (`POST /api/ai-config/test`) — uji provider **sebelum disimpan**:
+  kirim permintaan mini sungguhan (chat 1 kata / TTS "Halo.") ke teks, voice `/audio/speech`,
+  voice chat-audio, maupun Pollinations — respons `{ok, message, latency_ms}`. Saat edit dengan
+  API key kosong, test otomatis memakai key tersimpan. Tombol 🧪 ada di setiap form + form bawaan.
+- **Jenis endpoint model suara custom** — pilih per provider:
+  - `speech` → `POST {base_url}/audio/speech` (standar OpenAI TTS)
+  - `chat_audio` → `POST {base_url}/chat/completions` + `modalities: ["text","audio"]`
+    (gpt-4o-audio style, untuk provider yang belum punya endpoint TTS standar)
+- **🔧 Model Bawaan tidak hardcode** (`POST /api/ai-config/defaults`) — nama model &
+  voice berikut bisa diganti dari panel ⚙️:
+  - `pollinations_text_model` — model hook bawaan (default `openai`, sebelumnya hardcoded)
+  - `pollinations_audio_model` — model GPT-Audio bawaan (default `openai-audio`, sebelumnya hardcoded)
+  - `edge_tts_voice` — voice Edge-TTS (default `id-ID-GadisNeural`, mis. ganti ke
+    `id-ID-ArdiNeural` untuk suara laki-laki)
+- E2E diperluas (45 checks): fake OpenAI server kini membalas **modalities audio** —
+  uji test koneksi (4 jenis), render `chat_audio`, model bawaan terkonfigurasi dipakai
+  hook & GPT-Audio (bukan nilai hardcoded).
+
+### Changed
+- Prompt "bacakan verbatim" untuk jalur TTS chat-audio diunggah jadi `TTS_VERBATIM_SYSTEM_PROMPT`
+  (dipakai bersama GPT-Audio Pollinations & voice custom `chat_audio`).
+- README: dokumentasi jenis endpoint, test koneksi, dan model bawaan.
+
+---
+
 ## [0.4.0] - 2026-09-24
 
 **Custom AI Provider (OpenAI-compatible) — model teks & model suara terpisah.**

@@ -563,7 +563,13 @@
               <input v-model="textForm.base_url" placeholder="Base URL — https://api.openai.com/v1" class="input-retro text-xs sm:col-span-2" />
               <input v-model="textForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs sm:col-span-2" />
             </div>
-            <button type="button" @click="saveAiTextModel" class="btn-retro text-xs px-3 py-1.5 mt-2">Simpan Model Teks</button>
+            <div class="flex gap-2 mt-2">
+              <button type="button" @click="testAiText" :disabled="testBusy === 'text'"
+                      class="btn-retro text-xs px-3 py-1.5 disabled:opacity-40">
+                {{ testBusy === 'text' ? 'Menguji…' : '🧪 Test Koneksi' }}
+              </button>
+              <button type="button" @click="saveAiTextModel" class="btn-retro text-xs px-3 py-1.5">Simpan Model Teks</button>
+            </div>
           </details>
         </section>
 
@@ -587,11 +593,49 @@
               <input v-model="voiceForm.model" placeholder="Model (mis. tts-1)" class="input-retro text-xs" />
               <input v-model="voiceForm.base_url" placeholder="Base URL — https://api.openai.com/v1" class="input-retro text-xs" />
               <input v-model="voiceForm.voice" placeholder="Voice (mis. nova / alloy)" class="input-retro text-xs" />
+              <select v-model="voiceForm.endpoint_type" class="input-retro text-xs">
+                <option value="speech">Endpoint: /audio/speech (standar)</option>
+                <option value="chat_audio">Endpoint: chat/completions + audio</option>
+              </select>
               <input v-model="voiceForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs" />
               <input v-model.number="voiceForm.speed" type="number" min="0.25" max="4" step="0.05" placeholder="Speed (1.0)" class="input-retro text-xs" />
             </div>
-            <button type="button" @click="saveAiVoiceModel" class="btn-retro text-xs px-3 py-1.5 mt-2">Simpan Model Suara</button>
+            <div class="flex gap-2 mt-2">
+              <button type="button" @click="testAiVoice" :disabled="testBusy === 'voice'"
+                      class="btn-retro text-xs px-3 py-1.5 disabled:opacity-40">
+                {{ testBusy === 'voice' ? 'Menguji…' : '🧪 Test Koneksi' }}
+              </button>
+              <button type="button" @click="saveAiVoiceModel" class="btn-retro text-xs px-3 py-1.5">Simpan Model Suara</button>
+            </div>
           </details>
+        </section>
+
+        <!-- ── Model bawaan (tidak hardcode) ─────────────────────────────── -->
+        <section class="space-y-2">
+          <h4 class="text-sm font-bold text-brand-300">🔧 Model Bawaan — bisa diganti (tidak hardcode)</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <span class="block text-[11px] text-slate-400 mb-1">Model teks Pollinations (hook bawaan)</span>
+              <div class="flex gap-1">
+                <input v-model="defaultsForm.pollinations_text_model" placeholder="openai" class="input-retro text-xs flex-1" />
+                <button type="button" @click="testAiDefault('pollinations_text')" :disabled="testBusy === 'pt'"
+                        class="btn-retro text-[10px] px-2 disabled:opacity-40">{{ testBusy === 'pt' ? '…' : '🧪' }}</button>
+              </div>
+            </div>
+            <div>
+              <span class="block text-[11px] text-slate-400 mb-1">Model suara Pollinations (GPT Audio)</span>
+              <div class="flex gap-1">
+                <input v-model="defaultsForm.pollinations_audio_model" placeholder="openai-audio" class="input-retro text-xs flex-1" />
+                <button type="button" @click="testAiDefault('pollinations_audio')" :disabled="testBusy === 'pa'"
+                        class="btn-retro text-[10px] px-2 disabled:opacity-40">{{ testBusy === 'pa' ? '…' : '🧪' }}</button>
+              </div>
+            </div>
+            <div class="sm:col-span-2">
+              <span class="block text-[11px] text-slate-400 mb-1">Voice Edge-TTS (mis. id-ID-ArdiNeural untuk laki-laki)</span>
+              <input v-model="defaultsForm.edge_tts_voice" placeholder="id-ID-GadisNeural" class="input-retro text-xs" />
+            </div>
+          </div>
+          <button type="button" @click="saveAiDefaults" class="btn-retro text-xs px-3 py-1.5">Simpan Model Bawaan</button>
         </section>
 
         <p v-if="aiStatus" class="text-xs" :class="aiStatusIsError ? 'text-red-400' : 'text-emerald-400'">{{ aiStatus }}</p>
@@ -885,7 +929,9 @@ const showAiSettings = ref(false)
 const aiConfig = reactive({ text_models: [], voice_models: [], active_text_model: '' })
 const pendingActiveText = ref('')
 const textForm  = reactive({ id: null, label: '', model: '', base_url: '', api_key: '' })
-const voiceForm = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0 })
+const voiceForm = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0, endpoint_type: 'speech' })
+const defaultsForm = reactive({ pollinations_text_model: '', pollinations_audio_model: '', edge_tts_voice: '' })
+const testBusy        = ref('')   // '' | 'text' | 'voice' | 'pt' | 'pa'
 const aiStatus        = ref('')
 const aiStatusIsError = ref(false)
 
@@ -902,7 +948,78 @@ async function fetchAiConfig() {
     aiConfig.voice_models     = res.data.voice_models || []
     aiConfig.active_text_model = res.data.active_text_model || ''
     pendingActiveText.value   = aiConfig.active_text_model
+    const d = res.data.defaults || {}
+    defaultsForm.pollinations_text_model  = d.pollinations_text_model  || 'openai'
+    defaultsForm.pollinations_audio_model = d.pollinations_audio_model || 'openai-audio'
+    defaultsForm.edge_tts_voice           = d.edge_tts_voice           || 'id-ID-GadisNeural'
   } catch { /* biarkan kosong bila gagal */ }
+}
+
+function flashTestResult(r) {
+  flashAiStatus(r.data.ok
+    ? `✅ Koneksi OK (${r.data.latency_ms} ms) — ${r.data.message}`
+    : `❌ ${r.data.message}`, !r.data.ok)
+}
+
+async function testAiText() {
+  if (!textForm.base_url.trim() || !textForm.model.trim()) {
+    flashAiStatus('Isi Base URL dan Model dulu sebelum test.', true); return
+  }
+  testBusy.value = 'text'
+  try {
+    const r = await axios.post(`${API_BASE_URL}/api/ai-config/test`, {
+      kind: 'text', id: textForm.id, base_url: textForm.base_url,
+      api_key: textForm.api_key, model: textForm.model,
+    })
+    flashTestResult(r)
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Test koneksi gagal.', true)
+  } finally { testBusy.value = '' }
+}
+
+async function testAiVoice() {
+  if (!voiceForm.base_url.trim() || !voiceForm.model.trim() || !voiceForm.voice.trim()) {
+    flashAiStatus('Isi Base URL, Model, dan Voice dulu sebelum test.', true); return
+  }
+  testBusy.value = 'voice'
+  try {
+    const r = await axios.post(`${API_BASE_URL}/api/ai-config/test`, {
+      kind: voiceForm.endpoint_type === 'chat_audio' ? 'voice_chat_audio' : 'voice_speech',
+      id: voiceForm.id, base_url: voiceForm.base_url,
+      api_key: voiceForm.api_key, model: voiceForm.model, voice: voiceForm.voice,
+    })
+    flashTestResult(r)
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Test koneksi gagal.', true)
+  } finally { testBusy.value = '' }
+}
+
+async function testAiDefault(which) {
+  testBusy.value = which === 'pollinations_text' ? 'pt' : 'pa'
+  try {
+    const r = await axios.post(`${API_BASE_URL}/api/ai-config/test`, {
+      kind: which,
+      model: which === 'pollinations_text'
+        ? defaultsForm.pollinations_text_model : defaultsForm.pollinations_audio_model,
+    })
+    flashTestResult(r)
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Test koneksi gagal.', true)
+  } finally { testBusy.value = '' }
+}
+
+async function saveAiDefaults() {
+  try {
+    await axios.post(`${API_BASE_URL}/api/ai-config/defaults`, {
+      pollinations_text_model: defaultsForm.pollinations_text_model,
+      pollinations_audio_model: defaultsForm.pollinations_audio_model,
+      edge_tts_voice: defaultsForm.edge_tts_voice,
+    })
+    await fetchAiConfig()
+    flashAiStatus('✅ Model bawaan tersimpan.')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal menyimpan model bawaan.', true)
+  }
 }
 
 async function saveAiTextModel() {
@@ -978,7 +1095,7 @@ const activeTextLabel = computed(() => {
 
 const voiceOptions = computed(() => {
   const base = [
-    { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
+    { value: 'id-ID-GadisNeural', label: `Edge-TTS — ${defaultsForm.edge_tts_voice || 'id-ID-GadisNeural'}` },
     { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
     { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
     { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },

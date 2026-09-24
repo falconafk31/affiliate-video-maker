@@ -17,6 +17,7 @@ Versi rilis dan isinya terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).
 - 🟢 **v0.2.0** — **Auto Subtitle Burn-in (AKTIF/NONAKTIF)**: caption gaya TikTok, timing word-boundary Edge-TTS (fallback proporsional), file `.srt` bisa diunduh, preset gaya caption, `backend/requirements.txt` sudah benar (`requirements.txt` bukan `requirement.txt`), seed `hook_logs.csv` agar `/api/logs` aman untuk user baru, perbaikan pipeline & pengembangan lokal (lihat CHANGELOG 0.2.0).
 - 🟢 **v0.3.0** — **Custom Subtitle Style** (ukuran/warna/outline/posisi/kapital) + **Custom Font Import** (`.ttf/.otf/.ttc`, family auto-detect, `fontsdir` tanpa instalasi sistem) + balanced line wrap + sidecar `.ass` + test font (E2E/unit) + dokumentasi lengkap.
 - 🟢 **v0.4.0** — **Custom AI Provider (OpenAI-compatible)**: model teks (hook) terpisah dari model suara (voiceover) — masing-masing bisa pakai provider sendiri (Base URL + API Key + Model bebas); 1 model teks aktif + daftar voice model custom (`custom:{id}`); panel ⚙️ Kelola AI Model; API key ter-mask; `POLLINATIONS_API_KEY` jadi opsional; E2E fake OpenAI server.
+- 🟢 **v0.5.0** — **Test Koneksi provider** (🧪 sebelum simpan, `{ok, message, latency_ms}`) + **dua jenis endpoint voice custom** (`/audio/speech` standar ATAU `/chat/completions` + modalities audio gpt-4o-audio style) + **semua model tidak hardcode** (model teks & suara Pollinations serta voice Edge-TTS configurable via "Model Bawaan").
 
 ---
 

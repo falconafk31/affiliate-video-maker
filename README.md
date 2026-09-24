@@ -267,6 +267,8 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `POST` | `/api/ai-config/voice-models` | ✅ | Tambah/update model suara OpenAI-compatible (voiceover) |
 | `DELETE` | `/api/ai-config/voice-models/{id}` | ✅ | Hapus model suara |
 | `POST` | `/api/ai-config/active-text-model` | ✅ | Pilih model teks aktif (`""` = Pollinations bawaan) |
+| `POST` | `/api/ai-config/test` | ✅ | 🧪 Test koneksi provider (teks / voice / Pollinations) |
+| `POST` | `/api/ai-config/defaults` | ✅ | Atur model bawaan (Pollinations teks & audio, voice Edge-TTS) |
 | `GET` | `/api/videos/{file}` | — | Static: hasil render |
 | `GET` | `/api/audios/{file}` | — | Static: voiceover |
 | `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt`/`.ass` |
@@ -346,20 +348,21 @@ python mcp_server.py
 
 ## 🧩 Konfigurasi AI Provider (OpenAI-Compatible)
 
-Aplikasi memisahkan **model teks (hook)** dan **model suara (voice)** — masing-masing bisa memakai provider AI sesuai kebutuhan:
+Aplikasi memisahkan **model teks (hook)** dan **model suara (voice)** — masing-masing bisa memakai provider AI sesuai kebutuhan. **Semua nama model bebas diisi — tidak ada yang hardcode** (termasuk model bawaan Pollinations & voice Edge-TTS bisa diganti).
 
 | Peran | Default | Custom (OpenAI-compatible) |
 |---|---|---|
-| **Model Teks (hook)** | Pollinations (`model: openai`) | `POST {base_url}/chat/completions` — bebas model (gpt-4o-mini, deepseek-chat, llama, dll.) |
-| **Model Suara (voice)** | Edge-TTS (Gadis) + GPT-Audio (Pollinations) | `POST {base_url}/audio/speech` (`response_format: mp3`) — bebas model + voice (OpenAI TTS, ElevenLabs, MiniMax, LocalAI, dll.) |
+| **Model Teks (hook)** | Pollinations (`model` bisa diganti, default `openai`) | `POST {base_url}/chat/completions` — bebas model (gpt-4o-mini, deepseek-chat, llama, dll.) |
+| **Model Suara (voice)** | Edge-TTS (voice bisa diganti) + GPT-Audio Pollinations (`model` bisa diganti, default `openai-audio`) | 2 jenis endpoint: **`/audio/speech`** (standar OpenAI TTS) atau **`/chat/completions` + modalities audio** (gpt-4o-audio style) — bebas model + voice |
 
 Kelola lewat tombol **⚙️ Kelola AI Model** di editor (Step 1 hook & Step 2 voice):
 
-1. **Model Teks** — isi *Label*, *Base URL* (akhiran `/v1`), *API Key*, *Model* → **Aktifkan untuk hook**.
-   Hanya **satu model teks aktif** (1 AI model untuk generate hook text).
-2. **Model Suara** — isi *Label*, *Base URL*, *API Key*, *Model*, *Voice*, *Speed* → otomatis muncul di dropdown **Voice Model** sebagai `custom:{id}` (bisa ditambah beberapa provider).
+1. **Model Teks** — isi *Label*, *Base URL* (akhiran `/v1`), *API Key*, *Model* → **🧪 Test Koneksi** → **Aktifkan untuk hook**. Hanya **satu model teks aktif** (1 AI model untuk generate hook text).
+2. **Model Suara** — isi *Label*, *Base URL*, *API Key*, *Model*, *Voice*, *Speed*, **jenis endpoint** → **🧪 Test Koneksi** → otomatis muncul di dropdown **Voice Model** sebagai `custom:{id}` (bisa banyak provider sekaligus).
+3. **Model Bawaan** — ganti nama model Pollinations (teks & audio) dan voice Edge-TTS (mis. `id-ID-ArdiNeural` untuk suara laki-laki) — semua configurable, **tidak hardcode**.
 
 Catatan:
+- **🧪 Test Koneksi** mengirim permintaan mini sungguhan ke provider (chat 1 kata / TTS "Halo.") dan melaporkan hasil + latensi — uji dulu sebelum simpan. Saat edit dengan API key kosong, test memakai key tersimpan.
 - API key disimpan di server (`backend/logs/ai_config.json` — **tidak ikut Git**) dan selalu ditampilkan **ter-mask**. Saat edit, mengosongkan API key = **mempertahankan key lama**.
 - `POLLINATIONS_API_KEY` kini **opsional** — hanya wajib saat provider Pollinations yang dipakai (hook bawaan / GPT-Audio).
 - Word-boundary (timing subtitle) hanya dari Edge-TTS; voice custom memakai timing proporsional.
