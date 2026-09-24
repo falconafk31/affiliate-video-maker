@@ -138,6 +138,19 @@ check("compute_output_dimensions 9:16 pas → no-op",
 check("compute_output_dimensions 4:5 → crop genap 758x1350",
       compute_output_dimensions(1080, 1350, True) == (758, 1350),
       str(compute_output_dimensions(1080, 1350, True)))
+check("compute_output_dimensions 1:1 720x1280 → 720x720",
+      compute_output_dimensions(720, 1280, True, "1:1") == (720, 720),
+      str(compute_output_dimensions(720, 1280, True, "1:1")))
+check("compute_output_dimensions 16:9 1080x1350 → 1080x606",
+      compute_output_dimensions(1080, 1350, True, "16:9") == (1080, 606),
+      str(compute_output_dimensions(1080, 1350, True, "16:9")))
+check("compute_output_dimensions force=False + 9:16 = tanpa crop (legacy)",
+      compute_output_dimensions(1080, 1350, False, "9:16") == (1080, 1350))
+check("compute_output_dimensions force=False + 1:1 = tetap crop kotak",
+      compute_output_dimensions(1080, 1350, False, "1:1") == (1080, 1080),
+      str(compute_output_dimensions(1080, 1350, False, "1:1")))
+check("compute_output_dimensions dimensi 0 → default per rasio",
+      compute_output_dimensions(0, 0, True, "1:1") == (720, 720))
 
 print("═" * 60)
 print("5) Burn-in nyata via FFmpeg")

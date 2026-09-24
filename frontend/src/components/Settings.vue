@@ -12,6 +12,7 @@
       Provider apa pun yang <b>OpenAI-compatible</b> bisa dipakai — isi <b>Base URL</b> (akhiran <code>/v1</code>), <b>API Key</b>, dan nama <b>model</b> sesuai provider (tidak hardcode).
       Konfigurasi disimpan di <b>database SQLite</b> server; API key selalu tampil <b>ter-mask</b>.
     </p>
+    <p v-if="loading" class="text-sm text-slate-500">⏳ Memuat konfigurasi…</p>
 
     <!-- Endpoint yang digunakan -->
     <section class="retro-box p-4 space-y-2">
@@ -57,6 +58,7 @@
           <input v-model="textForm.model" placeholder="Model (mis. gpt-4o-mini)" class="input-retro text-xs" />
           <input v-model="textForm.base_url" placeholder="Base URL — https://api.openai.com/v1" class="input-retro text-xs sm:col-span-2" />
           <input v-model="textForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs sm:col-span-2" />
+          <input v-model.number="textForm.timeout_s" type="number" min="0" max="300" step="5" placeholder="Timeout dtk (0 = auto 60)" class="input-retro text-xs sm:col-span-2" />
         </div>
         <p class="text-[11px] text-slate-500 mt-1">Endpoint: <code>POST {{ textForm.base_url || '{base_url}' }}/chat/completions</code></p>
         <div class="flex gap-2 mt-2">
@@ -96,6 +98,7 @@
           </select>
           <input v-model="voiceForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs" />
           <input v-model.number="voiceForm.speed" type="number" min="0.25" max="4" step="0.05" placeholder="Speed (1.0)" class="input-retro text-xs" />
+          <input v-model.number="voiceForm.timeout_s" type="number" min="0" max="600" step="10" placeholder="Timeout dtk (0 = auto 120)" class="input-retro text-xs sm:col-span-2" />
         </div>
         <p class="text-[11px] text-slate-500 mt-1">Endpoint: <code>POST {{ voiceForm.base_url || '{base_url}' }}{{ voiceForm.endpoint_type === 'chat_audio' ? '/chat/completions' : '/audio/speech' }}</code></p>
         <div class="flex gap-2 mt-2">
@@ -150,10 +153,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 const aiConfig = reactive({ text_models: [], voice_models: [], active_text_model: '', defaults: {} })
 const pendingActiveText = ref('')
-const textForm  = reactive({ id: null, label: '', model: '', base_url: '', api_key: '' })
-const voiceForm = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0, endpoint_type: 'speech' })
+const textForm  = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', timeout_s: 0 })
+const voiceForm = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0, endpoint_type: 'speech', timeout_s: 0 })
 const defaultsForm = reactive({ pollinations_text_model: '', pollinations_audio_model: '', edge_tts_voice: '' })
+const loading = ref(true)
 const pollinationsUrl = ref('https://gen.pollinations.ai')
+import { toast } from '../toast.js'
+
 const testBusy        = ref('')
 const aiStatus        = ref('')
 const aiStatusIsError = ref(false)
@@ -162,6 +168,7 @@ function flashAiStatus(msg, isError = false) {
   aiStatus.value = msg
   aiStatusIsError.value = isError
   setTimeout(() => { aiStatus.value = '' }, 6000)
+  toast(msg, isError ? 'error' : 'success')
 }
 
 function flashTestResult(r) {
@@ -184,6 +191,7 @@ async function fetchAiConfig() {
     defaultsForm.pollinations_audio_model = d.pollinations_audio_model || 'openai-audio'
     defaultsForm.edge_tts_voice           = d.edge_tts_voice           || 'id-ID-GadisNeural'
   } catch { /* biarkan kosong bila gagal */ }
+  loading.value = false
 }
 
 async function testAiText() {

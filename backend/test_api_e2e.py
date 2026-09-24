@@ -161,6 +161,7 @@ async def wait_job(client, auth, data: dict, files: dict) -> dict:
                 done = json.loads(m.group(1))
                 if done.get("status") in ("done", "error"):
                     break
+    done["job_id"] = job_id
     return done
 
 
@@ -488,6 +489,60 @@ async def run() -> None:
 
                 main.POLLINATIONS_API_URL, main.POLLINATIONS_API_KEY = old_poll_url, old_poll_key
 
+                # ── timeout_s per provider (P1) ────────────────────────────
+                r = await client.post("/api/ai-config/text-models", headers=auth, json={
+                    "id": tid, "label": "Fake LLM v2", "base_url": base_url,
+                    "api_key": "", "model": "fake-gpt-v2", "timeout_s": 25})
+                r = await client.get("/api/ai-config", headers=auth)
+                check("timeout_s provider tersimpan (GET → 25)",
+                      any(m["id"] == tid and float(m.get("timeout_s") or 0) == 25
+                          for m in r.json()["text_models"]), r.text[:200])
+
+                # ── Rate-limit generate-hook (anti boros kuota) ──────────────
+                main._RATE_HITS.clear()
+                statuses = []
+                for i in range(31):
+                    rr = await client.post("/api/generate-hook", headers=auth, data={
+                        "product_name": f"Produk Rate {i}", "hook_type": "tiktok",
+                        "variation": "viral"})
+                    statuses.append(rr.status_code)
+                check("rate-limit hook: 31 call cepat → call ke-31 ditekan 429",
+                      statuses[-1] == 429 and statuses.count(429) == 1,
+                      str(statuses[-6:]))
+                main._RATE_HITS.clear()
+
+                # ── Voice preview (🔊 Contoh Suara) ─────────────────────────
+                r = await client.post("/api/voice-preview", headers=auth,
+                                      json={"voice_model": "id-ID-GadisNeural"})
+                check("voice-preview → audio_url /api/audios/preview_*.mp3",
+                      r.status_code == 200
+                      and "/api/audios/preview_" in r.json().get("audio_url", ""),
+                      r.text[:150])
+                prev_file = Path(main.AUDIOS_DIR) / Path(r.json().get("audio_url", "")).name
+                check("file preview audio dibuat di AUDIOS_DIR",
+                      prev_file.exists() and prev_file.stat().st_size > 500)
+                prev_file.unlink(missing_ok=True)
+
+                # ── Job 5: rasio 1:1 + kualitas HD + persistensi kolom jobs ─
+                with open(raw, "rb") as f:
+                    done5 = await wait_job(client, auth,
+                        {"prompt_text": script, "voice_model": "id-ID-GadisNeural",
+                         "duration_mode": "auto", "burn_subtitles": "false",
+                         "output_ratio": "1:1", "quality": "hd"},
+                        {"video": ("raw.mp4", f, "video/mp4")})
+                check("Job 5 (rasio 1:1 + HD) → done", done5.get("status") == "done",
+                      str(done5.get("error") or done5.get("status")))
+                out5 = Path(main.VIDEOS_DIR) / f"{done5['job_id']}.mp4"
+                w5, h5 = main.get_media_dimensions(str(out5))
+                check("output 1:1 → 720x720 (crop kotak dari 720x1280)", (w5, h5) == (720, 720),
+                      f"{w5}x{h5}")
+                _conn = sqlite3.connect(str(main.DB_PATH))
+                row5 = _conn.execute("SELECT status FROM jobs WHERE id=?",
+                                     (done5["job_id"],)).fetchone()
+                _conn.close()
+                check("row jobs tersimpan di SQLite (write-through _set_job)",
+                      row5 is not None and row5[0] == "done", str(row5))
+
                 # Kembalikan ke default + bersihkan konfigurasi
                 r = await client.post("/api/ai-config/defaults", headers=auth, json={
                     "pollinations_text_model": "openai",
@@ -513,8 +568,8 @@ async def run() -> None:
                 r = await client.get("/api/ai-config", headers=auth)
                 check("migrasi json lama → SQLite (entry legacy masuk DB)",
                       any(m["id"] == "legacy123" for m in r.json()["text_models"]))
-                check("file json lama diarsipkan (.json.migrated)",
-                      not legacy.exists() and legacy.with_suffix(".json.migrated").exists())
+                check("file json lama DIHAPUS permanen (API key tidak tersisa)",
+                      not legacy.exists() and not legacy.with_suffix(".json.migrated").exists())
                 await client.delete("/api/ai-config/text-models/legacy123", headers=auth)
                 for pth in (legacy, legacy.with_suffix(".json.migrated")):
                     pth.unlink(missing_ok=True)

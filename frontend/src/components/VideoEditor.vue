@@ -176,6 +176,12 @@
         </div>
       </div>
 
+      <!-- Badge model AI aktif (C3) -->
+      <div class="flex flex-wrap gap-2 text-[11px] -mt-2">
+        <span class="px-2 py-1 border border-slate-700 text-slate-400">🧠 Teks: <b class="text-slate-200">{{ activeTextLabel }}</b></span>
+        <span class="px-2 py-1 border border-slate-700 text-slate-400">🎙️ Suara: <b class="text-slate-200">{{ voiceModelLabel }}</b></span>
+      </div>
+
       <!-- Drag & Drop Video Upload — Only if mode is 'video' -->
       <div v-if="mode === 'video'" class="animate-fade-in space-y-3">
         <label class="block text-sm font-medium text-slate-300 mb-2">
@@ -311,6 +317,14 @@
         <select id="voice-model" v-model="voiceModel" class="input-retro">
           <option v-for="v in voiceOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
         </select>
+        <div class="flex items-center gap-2 mt-2">
+          <button type="button" @click="previewVoice" :disabled="previewBusy"
+                  class="px-3 py-1.5 border-2 border-retro-cyan text-retro-cyan text-xs hover:bg-retro-cyan hover:text-black transition-all disabled:opacity-50">
+            {{ previewBusy ? '⏳ Membuat…' : '🔊 Contoh Suara' }}
+          </button>
+          <span v-if="previewErr" class="text-[11px] text-red-400">{{ previewErr }}</span>
+        </div>
+        <audio v-if="previewUrl" id="voice-preview-audio" :src="previewUrl" controls class="w-full mt-2"></audio>
         <p v-if="voiceModel.startsWith('custom:')" class="text-[11px] text-slate-500 mt-1">
           Model suara custom (OpenAI-compatible) — timing subtitle proporsional.
         </p>
@@ -456,6 +470,21 @@
         </div>
       </div>
 
+      <!-- Preview Caption (mock burn-in) — tanpa render FFmpeg -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          👀 Preview Caption
+          <span class="ml-2 text-xs text-slate-500">Perkiraan tampilan subtitle di video</span>
+        </label>
+        <div class="mx-auto bg-slate-950 border-2 border-slate-700 relative overflow-hidden"
+             :style="{ width: '170px', height: '302px' }">
+          <div class="absolute inset-0 flex items-center justify-center text-[10px] text-slate-600">Area Video</div>
+          <div class="absolute left-2 right-2" :style="captionPreviewStyle">
+            <span :style="captionPreviewTextStyle">CONTOH TEKS SUBTITLE</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Duration Match Mode -->
       <div>
         <label class="block text-sm font-medium text-slate-300 mb-2">
@@ -476,6 +505,47 @@
             <span class="text-lg">{{ m.icon }}</span>
             <span class="text-xs font-semibold leading-tight">{{ m.label }}</span>
             <span class="text-xs opacity-60 leading-tight">{{ m.desc }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Rasio Output & Kualitas (mode video) -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          Rasio Output
+          <span class="ml-2 text-xs text-slate-500">Bentuk hasil video</span>
+        </label>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            v-for="r in ratioOptions" :key="r.value"
+            type="button"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="outputRatio === r.value
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="outputRatio = r.value"
+          >
+            <span class="text-lg">{{ r.icon }}</span>
+            <span class="text-xs font-semibold leading-tight">{{ r.label }}</span>
+            <span class="text-xs opacity-60 leading-tight">{{ r.desc }}</span>
+          </button>
+        </div>
+        <label class="block text-sm font-medium text-slate-300 mb-2 mt-3">
+          Kualitas Render
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            v-for="q in qualityOptions" :key="q.value"
+            type="button"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="quality === q.value
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="quality = q.value"
+          >
+            <span class="text-lg">{{ q.icon }}</span>
+            <span class="text-xs font-semibold leading-tight">{{ q.label }}</span>
+            <span class="text-xs opacity-60 leading-tight">{{ q.desc }}</span>
           </button>
         </div>
       </div>
@@ -513,7 +583,13 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <p class="text-red-300 text-sm">{{ serverError }}</p>
+        <div class="flex-1 space-y-2">
+          <p class="text-red-300 text-sm">{{ serverError }}</p>
+          <button type="button" @click="handleSubmit"
+                  class="text-xs text-retro-cyan underline hover:text-white transition-colors">
+            ↻ Coba Lagi
+          </button>
+        </div>
       </div>
     </form>
 
@@ -779,6 +855,68 @@ const estimatedDuration = computed(() => {
   return Math.ceil(words / 2.33)
 })
 
+// ── Output Ratio & Quality ────────────────────────────────────────────────────
+const outputRatio = ref('9:16')   // '9:16' | '1:1' | '16:9'
+const quality     = ref('hemat')  // 'hemat' (cepat) | 'hd'
+
+const qualityOptions = [
+  { value: 'hemat', icon: '⚡', label: 'Hemat & Cepat', desc: 'File kecil' },
+  { value: 'hd',    icon: '✨', label: 'HD',            desc: 'Lebih tajam' },
+]
+
+const ratioOptions = [
+  { value: '9:16', icon: '📱', label: '9:16 Vertikal', desc: 'TikTok / Reels' },
+  { value: '1:1',  icon: '⬜', label: '1:1 Kotak',     desc: 'Feed IG / FB' },
+  { value: '16:9', icon: '🖥️', label: '16:9 Lanskap',  desc: 'YouTube / Web' },
+]
+
+// ── Contoh Suara (voice preview) ──────────────────────────────────────────────
+const previewBusy = ref(false)
+const previewUrl  = ref('')
+const previewErr  = ref('')
+async function previewVoice() {
+  if (previewBusy.value) return
+  previewBusy.value = true
+  previewErr.value = ''
+  try {
+    const r = await axios.post(`${API_BASE_URL}/api/voice-preview`,
+      { voice_model: voiceModel.value }, { timeout: 30000 })
+    previewUrl.value = API_BASE_URL + r.data.audio_url
+    setTimeout(() => { document.getElementById('voice-preview-audio')?.load() }, 50)
+  } catch (e) {
+    previewErr.value = e?.response?.data?.detail || 'Gagal membuat contoh suara.'
+  } finally { previewBusy.value = false }
+}
+
+// ── Preview Caption Style (C1) ───────────────────────────────────────────────
+const SIZE_PX    = { sm: 11, md: 14, lg: 18 }
+const OUTLINE_PX = { thin: 1, md: 2, thick: 3 }
+const captionPreviewStyle = computed(() => {
+  const pos = subtitleStyle.position
+  return {
+    top: pos === 'top' ? '12%' : pos === 'center' ? '50%' : 'auto',
+    bottom: pos === 'bottom' ? '10%' : 'auto',
+    transform: pos === 'center' ? 'translateY(50%)' : 'none',
+    textAlign: 'center',
+  }
+})
+const captionPreviewTextStyle = computed(() => {
+  const size  = SIZE_PX[subtitleStyle.size] || 14
+  const ow    = OUTLINE_PX[subtitleStyle.outline] || 2
+  const color = SUBTITLE_COLORS[subtitleStyle.color] || '#ffffff'
+  const oc    = subtitleStyle.outlineColor === 'white' ? '#ffffff'
+              : subtitleStyle.outlineColor === 'none' ? 'transparent' : '#111827'
+  return {
+    fontSize: size + 'px',
+    fontWeight: '700',
+    color,
+    textTransform: subtitleStyle.caps ? 'uppercase' : 'none',
+    textShadow: subtitleStyle.outlineColor === 'none' ? 'none'
+      : `${ow}px 0 0 ${oc}, -${ow}px 0 0 ${oc}, 0 ${ow}px 0 ${oc}, 0 -${ow}px 0 ${oc}`,
+    lineHeight: '1.3',
+  }
+})
+
 // ── Duration Modes ────────────────────────────────────────────────────────────
 const durationModes = [
   {
@@ -819,6 +957,15 @@ const activeTextLabel = computed(() => {
   if (!aiConfig.active_text_model) return 'Pollinations (bawaan)'
   const m = aiConfig.text_models.find(x => x.id === aiConfig.active_text_model)
   return m ? `${m.label} (${m.model})` : 'Pollinations (bawaan)'
+})
+
+const voiceModelLabel = computed(() => {
+  if (!voiceModel.value.startsWith('custom:')) {
+    return `Edge-TTS — ${aiConfig.defaults.edge_tts_voice || 'id-ID-GadisNeural'}`
+  }
+  const id = voiceModel.value.slice('custom:'.length)
+  const m = aiConfig.voice_models.find(x => x.id === id)
+  return m ? `${m.label} (${m.model})` : 'Voice custom'
 })
 
 const voiceOptions = computed(() => {
@@ -1028,6 +1175,8 @@ async function handleSubmit() {
       formData.append('subtitle_position', subtitleStyle.position)
       formData.append('subtitle_caps', String(subtitleStyle.caps))
       formData.append('subtitle_font_id', subtitleStyle.fontId || '')
+      formData.append('output_ratio', outputRatio.value)
+      formData.append('quality', quality.value)
       if (logId.value) formData.append('log_id', logId.value)
 
       if (libraryVideo.value) {

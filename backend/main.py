@@ -37,8 +37,17 @@ load_dotenv()
 
 # ── Security & Auth ───────────────────────────────────────────────────────────
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
-JWT_SECRET = os.getenv("JWT_SECRET", "default_secret_if_not_set")
 ALGORITHM = "HS256"
+
+# JWT_SECRET: wajib acak kuat di produksi (P0). Nilai default/lemah = hanya mode dev.
+JWT_SECRET = (os.getenv("JWT_SECRET") or "").strip()
+if not JWT_SECRET or JWT_SECRET in ("default_secret_if_not_set", "rahasia123456789"):
+    if (ADMIN_PASSWORD_HASH or "").strip():
+        raise RuntimeError(
+            "JWT_SECRET belum diisi / masih nilai default — untuk produksi wajib nilai acak kuat: "
+            "openssl rand -hex 32, lalu set di backend/.env")
+    JWT_SECRET = "dev-only-insecure-secret"
+    logging.warning("JWT_SECRET tidak diset — mode DEV (JANGAN untuk produksi!).")
 security = OAuth2PasswordBearer(tokenUrl="/api/docs-login")
 
 LOGIN_ATTEMPTS = {}  # { "ip_address": {"attempts": int, "locked_until": float} }
@@ -230,6 +239,9 @@ async def lifespan(app: FastAPI):
     AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
     LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    # Pulihkan status job dari SQLite (tahan restart server)
+    _load_jobs_from_db()
+    _cleanup_old_jobs()
     # Bersihkan orphaned temp job dirs yang lebih dari 2 jam (dari crash sebelumnya)
     now = time.time()
     for d in TEMP_DIR.iterdir():
@@ -248,9 +260,14 @@ app = FastAPI(title="Affiliate Video Maker API", lifespan=lifespan)
 # Add GZIP Middleware to compress responses
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# CORS: allowlist via env ALLOWED_ORIGINS (pisahkan dengan koma). "*" = terbuka (hanya dev).
+_allowed = [o.strip() for o in (os.getenv("ALLOWED_ORIGINS") or "*").split(",") if o.strip()]
+if "*" in _allowed and (os.getenv("ADMIN_PASSWORD_HASH") or "").strip():
+    logging.warning("ALLOWED_ORIGINS masih '*' di mode produksi — set ALLOWED_ORIGINS=https://domain-anda")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -421,42 +438,42 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
             if entry.get("speed"):
                 payload["speed"] = entry["speed"]
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(req_url, headers=headers, json=payload, timeout=120.0)
-                response.raise_for_status()
-                if endpoint_type == "chat_audio":
-                    import base64
-                    audio_b64 = (((response.json().get("choices") or [{}])[0].get("message") or {})
-                                 .get("audio") or {}).get("data")
-                    if not audio_b64:
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"API TTS chat_audio [{entry['label']}] tidak mengembalikan "
-                                   "message.audio.data — cek jenis endpoint/model.")
-                    content = base64.b64decode(audio_b64)
-                else:
-                    content = response.content
-                if len(content) < 512:
-                    raise HTTPException(status_code=502,
-                                        detail=f"API TTS custom [{entry['label']}] mengembalikan audio kosong.")
-                with open(output_path, "wb") as f:
-                    f.write(content)
-                logger.info("Custom TTS saved: %s (%d bytes, endpoint: %s)",
-                            output_path.name, len(content), endpoint_type)
-                return None
-            except httpx.TimeoutException:
-                logger.error("Custom TTS timeout (120s) | %s", entry["label"])
-                raise HTTPException(status_code=504, detail="Voice model custom timeout (120s). Coba lagi.")
-            except HTTPException:
-                raise
-            except httpx.HTTPStatusError as e:
-                logger.error("Custom TTS HTTP Error: %s", e)
-                raise HTTPException(status_code=e.response.status_code,
-                                    detail=f"API TTS Error [{entry['label']}]: {e.response.text[:300]}")
-            except Exception as e:
-                logger.error("Unexpected Custom TTS Error: %s", e)
-                raise HTTPException(status_code=500, detail=f"Gagal generate suara custom: {str(e)}")
+        voice_timeout = float(entry.get("timeout_s") or 120.0)
+        try:
+            response = await _post_with_retry(req_url, headers=headers, json=payload, timeout=voice_timeout)
+            response.raise_for_status()
+            if endpoint_type == "chat_audio":
+                import base64
+                audio_b64 = (((response.json().get("choices") or [{}])[0].get("message") or {})
+                             .get("audio") or {}).get("data")
+                if not audio_b64:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"API TTS chat_audio [{entry['label']}] tidak mengembalikan "
+                               "message.audio.data — cek jenis endpoint/model.")
+                content = base64.b64decode(audio_b64)
+            else:
+                content = response.content
+            if len(content) < 512:
+                raise HTTPException(status_code=502,
+                                    detail=f"API TTS custom [{entry['label']}] mengembalikan audio kosong.")
+            with open(output_path, "wb") as f:
+                f.write(content)
+            logger.info("Custom TTS saved: %s (%d bytes, endpoint: %s)",
+                        output_path.name, len(content), endpoint_type)
+            return None
+        except httpx.TimeoutException:
+            logger.error("Custom TTS timeout (%.0fs) | %s", voice_timeout, entry["label"])
+            raise HTTPException(status_code=504, detail="Voice model custom timeout. Coba lagi.")
+        except HTTPException:
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error("Custom TTS HTTP Error: %s", e)
+            raise HTTPException(status_code=e.response.status_code,
+                                detail=f"API TTS Error [{entry['label']}]: {e.response.text[:300]}")
+        except Exception as e:
+            logger.error("Unexpected Custom TTS Error: %s", e)
+            raise HTTPException(status_code=500, detail=f"Gagal generate suara custom: {str(e)}")
 
     if not POLLINATIONS_API_KEY:
         raise HTTPException(
@@ -499,43 +516,42 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
             }
         }
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{POLLINATIONS_API_URL.rstrip('/')}/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=90.0
-                )
-                response.raise_for_status()
-                data = response.json()
-                
-                if "choices" in data and len(data["choices"]) > 0:
-                    message = data["choices"][0]["message"]
-                    if "audio" in message and "data" in message["audio"]:
-                        import base64
-                        audio_bytes = base64.b64decode(message["audio"]["data"])
-                        with open(output_path, "wb") as f:
-                            f.write(audio_bytes)
-                        
-                        saved = output_path.stat().st_size
-                        logger.info("openai-audio saved: %s (%d bytes)", output_path.name, saved)
-                        if saved < 512:
-                            raise HTTPException(status_code=502, detail="API returned empty audio file.")
-                        return None
-                    else:
-                        raise HTTPException(status_code=502, detail="No audio data returned in API response.")
+        try:
+            response = await _post_with_retry(
+                f"{POLLINATIONS_API_URL.rstrip('/')}/v1/chat/completions",
+                headers=headers, json=payload, timeout=90.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            if "choices" in data and len(data["choices"]) > 0:
+                message = data["choices"][0]["message"]
+                if "audio" in message and "data" in message["audio"]:
+                    import base64
+                    audio_bytes = base64.b64decode(message["audio"]["data"])
+                    with open(output_path, "wb") as f:
+                        f.write(audio_bytes)
+                    
+                    saved = output_path.stat().st_size
+                    logger.info("openai-audio saved: %s (%d bytes)", output_path.name, saved)
+                    if saved < 512:
+                        raise HTTPException(status_code=502, detail="API returned empty audio file.")
+                    return None
                 else:
-                    raise HTTPException(status_code=502, detail="No choices returned in API response.")
-            except httpx.TimeoutException:
-                logger.error("Pollinations openai-audio API timeout (90s)")
-                raise HTTPException(status_code=504, detail="AI Voice sedang sibuk (Timeout 90s). Coba lagi.")
-            except httpx.HTTPStatusError as e:
-                logger.error("Pollinations openai-audio HTTP Error: %s", e)
-                raise HTTPException(status_code=e.response.status_code, detail=f"API Voice Error: {e.response.text}")
-            except Exception as e:
-                logger.error("Unexpected openai-audio Error: %s", e)
-                raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
+                    raise HTTPException(status_code=502, detail="No audio data returned in API response.")
+            else:
+                raise HTTPException(status_code=502, detail="No choices returned in API response.")
+        except httpx.TimeoutException:
+            logger.error("Pollinations openai-audio API timeout (90s)")
+            raise HTTPException(status_code=504, detail="AI Voice sedang sibuk (Timeout 90s). Coba lagi.")
+        except httpx.HTTPStatusError as e:
+            logger.error("Pollinations openai-audio HTTP Error: %s", e)
+            raise HTTPException(status_code=e.response.status_code, detail=f"API Voice Error: {e.response.text}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Unexpected openai-audio Error: %s", e)
+            raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
 
     logger.info("Calling Pollinations TTS (ASYNC) | prompt: %s...", prompt[:30])
 
@@ -636,6 +652,41 @@ def get_media_dimensions(file_path: str) -> tuple[int, int]:
 # karena PlayRes file ASS diset = dimensi output render).
 
 _FFMPEG_HAS_SUBTITLES: bool | None = None
+
+
+# ── HTTP client bersama + retry backoff (P1) — mengurangi gagal transient ─────
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _HTTP_CLIENT
+
+
+async def _post_with_retry(url: str, *, headers=None, json=None, timeout=None,
+                           retries: int = 2, retry_on_status=(429, 500, 502, 503, 504)):
+    """POST via shared client dengan retry backoff utk error transient."""
+    last_resp = None
+    for attempt in range(retries + 1):
+        try:
+            r = await _http().post(url, headers=headers, json=json, timeout=timeout)
+            if r.status_code in retry_on_status and attempt < retries:
+                last_resp = r
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            return r
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout,
+                httpx.PoolTimeout, httpx.RemoteProtocolError):
+            if attempt < retries:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            raise
+    return last_resp
 
 
 def ffmpeg_supports_subtitles() -> bool:
@@ -988,15 +1039,17 @@ def build_subtitles(
     return srt_path, ass_path
 
 
-def compute_output_dimensions(vw: int, vh: int, portrait: bool) -> tuple[int, int]:
-    """Dimensi output SETELAH crop 9:16 — harus sama persis dengan rumus crop di FFmpeg."""
+def compute_output_dimensions(vw: int, vh: int, force_portrait: bool = True,
+                              output_ratio: str = "9:16") -> tuple[int, int]:
+    """Dimensi output SETELAH crop rasio — WAJIB sama dengan rumus crop di merge_video_audio."""
     if not vw or not vh:
-        return (720, 1280) if portrait else (1280, 720)
-    if portrait:
-        out_w = min(vw, int(vh * 9 / 32) * 2)   # = trunc(ih*9/16/2)*2
-        out_h = min(vh, int(vw * 8 / 9) * 2)    # = trunc(iw*16/9/2)*2
-        return out_w, out_h
-    return vw, vh
+        return {"1:1": (720, 720), "16:9": (1280, 720)}.get(output_ratio, (720, 1280))
+    if output_ratio == "9:16" and not force_portrait:
+        return vw, vh  # legacy: tanpa force-portrait → tanpa crop
+    target = {"9:16": 9 / 16, "1:1": 1.0, "16:9": 16 / 9}.get(output_ratio, 9 / 16)
+    out_w = min(vw, int(vh * target / 2) * 2)   # genap (libx264 menolak ganjil)
+    out_h = min(vh, int(vw / target / 2) * 2)
+    return out_w, out_h
 
 
 def merge_video_audio(
@@ -1006,6 +1059,8 @@ def merge_video_audio(
     duration_mode: str = "auto",
     force_portrait: bool = True,
     subtitle_ass: Path | None = None,
+    output_ratio: str = "9:16",
+    quality: str = "hemat",
 ) -> None:
     try:
         logger.info("Merging video with FFmpeg: %s", video_path.name)
@@ -1022,10 +1077,14 @@ def merge_video_audio(
         cmd.extend(["-i", str(video_path), "-i", str(audio_path)])
 
         vf = []
-        if force_portrait:
-            # Crop ke 9:16 dengan dimensi GENAP (libx264 menolak ganjil) dan aman
-            # untuk semua rasio input: landscape, 1:1, 4:5, 9:16, sampai 9:20.
-            vf.append("crop='min(iw,trunc(ih*9/16/2)*2)':'min(ih,trunc(iw*16/9/2)*2)'")
+        need_crop = not (output_ratio == "9:16" and not force_portrait)
+        if need_crop:
+            # Crop ke rasio output dengan dimensi GENAP (libx264 menolak ganjil);
+            # nilai = compute_output_dimensions() supaya preview & render konsisten.
+            vw0, vh0 = get_media_dimensions(str(video_path))
+            out_w, out_h = compute_output_dimensions(vw0, vh0, force_portrait, output_ratio)
+            if (out_w, out_h) != (vw0, vh0):
+                vf.append(f"crop={out_w}:{out_h}")
         if subtitle_ass is not None:
             ass_filter = f"ass={subtitle_ass.name}"
             # Font custom (hasil upload) disalin ke folder kerja — muat via fontsdir
@@ -1048,7 +1107,9 @@ def merge_video_audio(
         if not vf:
             cmd.extend(["-c:v", "copy"])
         else:
-            cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "28"])
+            # hemat = cepat/ukuran kecil; hd = kualitas lebih tinggi (lebih lama)
+            crf = "23" if quality == "hd" else "28"
+            cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", crf])
 
         cmd.append(str(output_path))
         
@@ -1090,6 +1151,8 @@ async def process_video(
     voice_model: str = Form("whisper"),
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
+    output_ratio: str = Form("9:16"),
+    quality: str = Form("hemat"),
     burn_subtitles: str = Form("false"),
     subtitle_font_id: str = Form(""),
     subtitle_size: str = Form("md"),
@@ -1125,6 +1188,10 @@ async def process_video(
 
         if duration_mode not in ("auto", "loop_video", "trim_audio"):
             duration_mode = "auto"
+        if output_ratio not in ("9:16", "1:1", "16:9"):
+            output_ratio = "9:16"
+        if quality not in ("hemat", "hd"):
+            quality = "hemat"
         portrait = force_portrait.lower() not in ("false", "0", "no")
         burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
         subtitle_style = _normalize_subtitle_style(
@@ -1142,7 +1209,7 @@ async def process_video(
                            "Matikan Auto Subtitle atau instal FFmpeg build lengkap.",
                 )
             vw, vh = get_media_dimensions(str(raw_video_path))
-            play_w, play_h = compute_output_dimensions(vw, vh, portrait)
+            play_w, play_h = compute_output_dimensions(vw, vh, portrait, output_ratio)
             built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries,
                                     play_w, play_h, subtitle_style, subtitle_font_id)
             if built:
@@ -1151,7 +1218,7 @@ async def process_video(
         # FFmpeg merge (blocking) - run in thread pool
         await asyncio.to_thread(
             merge_video_audio, raw_video_path, voice_path, output_path,
-            duration_mode, portrait, ass_path,
+            duration_mode, portrait, ass_path, output_ratio, quality,
         )
 
         # Selalu persist hasil (pakai job_id bila tidak ada log_id) agar video tidak hilang
@@ -1429,6 +1496,24 @@ def _clean_hook_output(text: str, variation: str) -> str:
 
     return text.strip()
 
+_RATE_LOCK = threading.Lock()
+_RATE_HITS: dict[str, list[float]] = {}
+
+
+def _rate_limit(key: str, limit: int, window_s: float = 60.0) -> None:
+    """Rate-limit sederhana per user — cegah boros kuota LLM/TTS bila token bocor."""
+    now = time.time()
+    with _RATE_LOCK:
+        hits = [t for t in _RATE_HITS.get(key, []) if now - t < window_s]
+        if len(hits) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Terlalu banyak permintaan (maks {limit}x per {int(window_s)} detik). "
+                       "Coba sebentar lagi.")
+        hits.append(now)
+        _RATE_HITS[key] = hits
+
+
 @app.post("/api/generate-hook")
 async def generate_hook(
     product_name: str = Form(..., description="Nama produk affiliate"),
@@ -1436,6 +1521,7 @@ async def generate_hook(
     variation: str    = Form("viral",  description="Variasi hook style"),
     current_user: str = Depends(get_current_user),
 ):
+    _rate_limit(f"hook:{current_user}", 30)
     if not product_name.strip():
         raise HTTPException(status_code=400, detail="product_name tidak boleh kosong.")
 
@@ -1520,59 +1606,56 @@ async def generate_hook(
     logger.info("Generating hook (ASYNC) via %s | product=%s platform=%s variation=%s",
                 provider_label, product_name, hook_type, variation)
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                req_url,
-                headers=headers,
-                json=payload,
-                timeout=45.0,
+    hook_timeout = float((provider or {}).get("timeout_s") or 60.0)
+    try:
+        response = await _post_with_retry(
+            req_url, headers=headers, json=payload, timeout=hook_timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("error"):
+            raise HTTPException(status_code=502,
+                                detail=f"API AI mengembalikan error: {str(data['error'])[:300]}")
+        choices = data.get("choices") or []
+        message = (choices[0].get("message") if choices else {}) or {}
+        raw_content = message.get("content")
+        if isinstance(raw_content, list):
+            # beberapa provider OpenAI-compatible mengirim [{type:'text', text:...}]
+            raw_content = "".join(p.get("text", "") for p in raw_content if isinstance(p, dict))
+        script = (raw_content or "").strip()
+        if not script:
+            logger.error("Hook content kosong/null: %s", json.dumps(data)[:500])
+            raise HTTPException(
+                status_code=502,
+                detail="Model tidak mengembalikan teks hook (content kosong/null). "
+                       "Coba model chat biasa (bukan model reasoning), atau naikkan kuota "
+                       "token provider.",
             )
-            response.raise_for_status()
-            data = response.json()
-            if data.get("error"):
-                raise HTTPException(status_code=502,
-                                    detail=f"API AI mengembalikan error: {str(data['error'])[:300]}")
-            choices = data.get("choices") or []
-            message = (choices[0].get("message") if choices else {}) or {}
-            raw_content = message.get("content")
-            if isinstance(raw_content, list):
-                # beberapa provider OpenAI-compatible mengirim [{type:'text', text:...}]
-                raw_content = "".join(p.get("text", "") for p in raw_content if isinstance(p, dict))
-            script = (raw_content or "").strip()
-            if not script:
-                logger.error("Hook content kosong/null: %s", json.dumps(data)[:500])
-                raise HTTPException(
-                    status_code=502,
-                    detail="Model tidak mengembalikan teks hook (content kosong/null). "
-                           "Coba model chat biasa (bukan model reasoning), atau naikkan kuota "
-                           "token provider.",
-                )
-            script = _clean_hook_output(script, variation)
+        script = _clean_hook_output(script, variation)
 
-            log_id = append_hook_log(hook_type, variation, product_name, script)
-            
-            return {
-                "script": script,
-                "product": product_name,
-                "platform": hook_type,
-                "variation": variation,
-                "log_id": log_id,
-                "is_visual_only": variation == "v2_visual",
-                "status": "success"
-            }
+        log_id = append_hook_log(hook_type, variation, product_name, script)
 
-        except httpx.TimeoutException:
-            logger.error("Pollinations text API timeout (45s)")
-            raise HTTPException(status_code=504, detail="AI sedang sibuk (Timeout 45s). Coba lagi.")
-        except httpx.HTTPStatusError as e:
-            logger.error("Pollinations API HTTP Error: %s", e)
-            raise HTTPException(status_code=e.response.status_code, detail=f"API AI Error: {e.response.text}")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("Error generating hook: %s", str(e))
-            raise HTTPException(status_code=500, detail=f"Gagal generate hook: {str(e)}")
+        return {
+            "script": script,
+            "product": product_name,
+            "platform": hook_type,
+            "variation": variation,
+            "log_id": log_id,
+            "is_visual_only": variation == "v2_visual",
+            "status": "success"
+        }
+
+    except httpx.TimeoutException:
+        logger.error("Text API timeout (%.0fs)", hook_timeout)
+        raise HTTPException(status_code=504, detail="AI sedang sibuk (timeout). Coba lagi.")
+    except httpx.HTTPStatusError as e:
+        logger.error("Text API HTTP Error: %s", e)
+        raise HTTPException(status_code=e.response.status_code, detail=f"API AI Error: {e.response.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error generating hook: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Gagal generate hook: {str(e)}")
 
 
 # ── Endpoint: Generate Audio Only ─────────────────────────────────────────────
@@ -1584,6 +1667,7 @@ async def generate_audio_only(
     log_id: str      = Form(None),
     current_user: str = Depends(get_current_user),
 ):
+    _rate_limit(f"audio:{current_user}", 10)
     job_id = str(uuid.uuid4())
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -1612,6 +1696,24 @@ async def generate_audio_only(
 
 
 # ── Log Viewer Endpoints ───────────────────────────────────────────────────────
+class VoicePreviewIn(BaseModel):
+    voice_model: str  # 'whisper' (Edge-TTS) | 'custom:{id}'
+
+
+@app.post("/api/voice-preview")
+async def voice_preview(body: VoicePreviewIn, current_user: str = Depends(get_current_user)):
+    """Contoh suara singkat utk voice terpilih (tombol 🔊 Contoh Suara di Editor)."""
+    _rate_limit(f"voicepreview:{current_user}", 6)
+    voice_model = (body.voice_model or "").strip()
+    if not voice_model:
+        raise HTTPException(status_code=400, detail="voice_model wajib diisi.")
+    out_name = f"preview_{uuid.uuid4().hex[:8]}.mp3"
+    out_path = AUDIOS_DIR / out_name
+    await generate_voice_from_pollinations(
+        "Halo, ini contoh suara untuk video promosi kamu.", voice_model, out_path)
+    return {"audio_url": f"/api/audios/{out_name}"}
+
+
 @app.get("/api/logs")
 def get_logs(current_user: str = Depends(get_current_user)):
     _ensure_log_header()
@@ -1938,6 +2040,7 @@ class TextModelIn(BaseModel):
     base_url: str
     api_key: str = ""
     model: str
+    timeout_s: float = 0  # 0 = auto (teks 60 dtk)
 
 
 class VoiceModelIn(BaseModel):
@@ -1949,6 +2052,7 @@ class VoiceModelIn(BaseModel):
     voice: str
     speed: float = 1.0
     endpoint_type: str = "speech"  # "speech" (/audio/speech) | "chat_audio" (chat+modalities audio)
+    timeout_s: float = 0  # 0 = auto (suara 120 dtk)
 
 
 class ActiveTextModelIn(BaseModel):
@@ -1963,7 +2067,7 @@ def _db() -> sqlite3.Connection:
 
 
 def _init_ai_db() -> None:
-    """Buat tabel SQLite konfigurasi AI + migrasi sekali jalan dari json lama."""
+    """Buat tabel SQLite konfigurasi AI + jobs, migrasi sekali jalan dari json lama."""
     with _db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_models (
@@ -1976,12 +2080,30 @@ def _init_ai_db() -> None:
                 voice         TEXT NOT NULL DEFAULT '',
                 speed         REAL NOT NULL DEFAULT 1.0,
                 endpoint_type TEXT NOT NULL DEFAULT 'speech',
+                timeout_s     REAL NOT NULL DEFAULT 0,
                 created_at    REAL
             )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL DEFAULT ''
+            )""")
+        # Kolom baru utk DB lama (ALTER gagal bila sudah ada → diabaikan)
+        try:
+            conn.execute("ALTER TABLE ai_models ADD COLUMN timeout_s REAL NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id           TEXT PRIMARY KEY,
+                status       TEXT NOT NULL DEFAULT 'queued',
+                progress     INTEGER NOT NULL DEFAULT 0,
+                message      TEXT NOT NULL DEFAULT '',
+                video_url    TEXT,
+                audio_url    TEXT,
+                subtitle_url TEXT,
+                error        TEXT,
+                created_at   REAL
             )""")
     _migrate_legacy_ai_json()
 
@@ -2012,8 +2134,9 @@ def _migrate_legacy_ai_json() -> None:
                 if cfg.get(key):
                     conn.execute("INSERT OR IGNORE INTO ai_settings (key, value) VALUES (?,?)",
                                  (key, str(cfg[key])))
-        LEGACY_AI_CONFIG_FILE.rename(LEGACY_AI_CONFIG_FILE.with_suffix(".json.migrated"))
-        logger.info("Migrasi konfigurasi AI (json -> SQLite) selesai.")
+        # File lama berisi API key — hapus PERMANEN setelah dimigrasi (jangan diarsipkan)
+        LEGACY_AI_CONFIG_FILE.unlink(missing_ok=True)
+        logger.info("Migrasi konfigurasi AI (json -> SQLite) selesai; file lama dihapus (API key tidak tersisa).")
     except Exception as e:
         logger.error("Migrasi ai_config.json gagal (file dibiarkan): %s", e)
 
@@ -2034,6 +2157,7 @@ def _read_ai_config() -> dict:
     for r in rows:
         entry = {k: r[k] for k in ("id", "label", "base_url", "api_key", "model",
                                    "voice", "speed", "endpoint_type")}
+        entry["timeout_s"] = r["timeout_s"] if "timeout_s" in r.keys() else 0
         out["text_models" if r["kind"] == "text" else "voice_models"].append(entry)
     return out
 
@@ -2098,6 +2222,7 @@ def _upsert_ai_entry(kind: str, body) -> dict:
     api_key = (body.api_key or "").strip()
     kind_val = "text" if kind == "text_models" else "voice"
     voice, speed, et = "", 1.0, "speech"
+    timeout_s = min(max(float(getattr(body, "timeout_s", 0) or 0), 0), 600)
 
     with AI_CONFIG_LOCK, _db() as conn:
         row = None
@@ -2120,15 +2245,16 @@ def _upsert_ai_entry(kind: str, body) -> dict:
                                            "'chat_audio' (chat/completions + modalities audio).")
         entry_id = body.id or uuid.uuid4().hex
         conn.execute(
-            "INSERT INTO ai_models (id, kind, label, base_url, api_key, model, voice, speed, endpoint_type, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "INSERT INTO ai_models (id, kind, label, base_url, api_key, model, voice, speed, endpoint_type, timeout_s, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET label=excluded.label, base_url=excluded.base_url, "
             "api_key=excluded.api_key, model=excluded.model, voice=excluded.voice, "
-            "speed=excluded.speed, endpoint_type=excluded.endpoint_type",
-            (entry_id, kind_val, label, base, api_key, model, voice, speed, et, time.time()))
+            "speed=excluded.speed, endpoint_type=excluded.endpoint_type, timeout_s=excluded.timeout_s",
+            (entry_id, kind_val, label, base, api_key, model, voice, speed, et, timeout_s, time.time()))
     logger.info("AI %s model saved: %s (%s)", kind_val, entry_id, label)
     return _public_entry({"id": entry_id, "label": label, "base_url": base, "api_key": api_key,
-                          "model": model, "voice": voice, "speed": speed, "endpoint_type": et})
+                          "model": model, "voice": voice, "speed": speed, "endpoint_type": et,
+                          "timeout_s": timeout_s})
 
 
 @app.get("/api/ai-config")
@@ -2190,6 +2316,7 @@ async def test_ai_connection(body: ConnTestIn, current_user: str = Depends(get_c
     Uji koneksi provider sebelum disimpan (tombol 🧪 di Pengaturan AI).
     Selalu membalas 200 {ok, message, latency_ms} — kegagalan koneksi = ok:false.
     """
+    _rate_limit(f"aitest:{current_user}", 60)
     import base64 as _b64
     kind = (body.kind or "").strip()
     model = (body.model or "").strip()
@@ -2361,20 +2488,65 @@ def set_active_text_model(body: ActiveTextModelIn, current_user: str = Depends(g
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _set_job(job_id: str, **kwargs):
+    """Update status job di memori + write-through ke SQLite (tahan restart)."""
     with JOBS_LOCK:
         if job_id not in jobs:
             jobs[job_id] = {}
         jobs[job_id].update(kwargs)
+        snapshot = dict(jobs[job_id])
+    try:
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO jobs (id, status, progress, message, video_url, audio_url, subtitle_url, error, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                "status=excluded.status, progress=excluded.progress, message=excluded.message, "
+                "video_url=excluded.video_url, audio_url=excluded.audio_url, "
+                "subtitle_url=excluded.subtitle_url, error=excluded.error, created_at=excluded.created_at",
+                (job_id,
+                 snapshot.get("status") or "queued",
+                 int(snapshot.get("progress") or 0),
+                 snapshot.get("message") or "",
+                 snapshot.get("video_url"), snapshot.get("audio_url"),
+                 snapshot.get("subtitle_url"), snapshot.get("error"),
+                 float(snapshot.get("created_at") or time.time())))
+    except Exception as e:
+        logger.warning("Gagal simpan job ke SQLite: %s", e)
+
+
+def _load_jobs_from_db() -> None:
+    """Pulihkan status job setelah restart. Job yang belum selesai → error jelas."""
+    try:
+        with _db() as conn:
+            rows = conn.execute("SELECT * FROM jobs").fetchall()
+        cutoff = time.time() - 3600
+        with JOBS_LOCK:
+            for r in rows:
+                if float(r["created_at"] or 0) < cutoff:
+                    continue
+                item = {k: r[k] for k in ("status", "progress", "message", "video_url",
+                                          "audio_url", "subtitle_url", "error", "created_at")}
+                if item["status"] not in ("done", "error"):
+                    item.update(status="error", progress=0, message="❌ Gagal",
+                                error="Proses terputus oleh restart server. Silakan submit ulang.")
+                jobs[r["id"]] = item
+        logger.info("Jobs dipulihkan dari SQLite: %d aktif (<1 jam)", len(jobs))
+    except Exception as e:
+        logger.warning("Gagal pulihkan jobs dari SQLite: %s", e)
 
 
 def _cleanup_old_jobs():
-    """Remove job entries older than 1 hour."""
+    """Remove job entries older than 1 hour (memori + SQLite)."""
     cutoff = time.time() - 3600
     with JOBS_LOCK:
         stale = [jid for jid, j in jobs.items() if j.get("created_at", 0) < cutoff]
         for jid in stale:
             del jobs[jid]
     if stale:
+        try:
+            with _db() as conn:
+                conn.executemany("DELETE FROM jobs WHERE id=?", [(jid,) for jid in stale])
+        except Exception:
+            pass
         logger.info("Cleaned up %d stale job(s)", len(stale))
 
 
@@ -2392,6 +2564,8 @@ async def _run_video_job(
     subtitle_style: dict | None,
     subtitle_font_id: str,
     log_id: str | None,
+    output_ratio: str = "9:16",
+    quality: str = "hemat",
 ):
     """Background coroutine that executes the full render pipeline with SSE status updates."""
     try:
@@ -2410,7 +2584,7 @@ async def _run_video_job(
                            "Matikan Auto Subtitle atau instal FFmpeg build lengkap.",
                 )
             vw, vh = get_media_dimensions(str(raw_video_path))
-            play_w, play_h = compute_output_dimensions(vw, vh, portrait)
+            play_w, play_h = compute_output_dimensions(vw, vh, portrait, output_ratio)
             built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries,
                                     play_w, play_h, subtitle_style, subtitle_font_id)
             if built:
@@ -2420,7 +2594,7 @@ async def _run_video_job(
         _set_job(job_id, status="merging_video", progress=45, message="🎬 Menggabungkan video + audio...")
         await asyncio.to_thread(
             merge_video_audio, raw_video_path, voice_path, output_path,
-            duration_mode, portrait, ass_path,
+            duration_mode, portrait, ass_path, output_ratio, quality,
         )
 
         # Stage 4: Persist — selalu simpan (pakai job_id bila tidak ada log_id)
@@ -2463,6 +2637,8 @@ async def submit_job(
     voice_model: str = Form("id-ID-GadisNeural"),
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
+    output_ratio: str = Form("9:16"),
+    quality: str = Form("hemat"),
     burn_subtitles: str = Form("false"),
     subtitle_font_id: str = Form(""),
     subtitle_size: str = Form("md"),
@@ -2516,6 +2692,10 @@ async def submit_job(
 
     if duration_mode not in ("auto", "loop_video", "trim_audio"):
         duration_mode = "auto"
+    if output_ratio not in ("9:16", "1:1", "16:9"):
+        output_ratio = "9:16"
+    if quality not in ("hemat", "hd"):
+        quality = "hemat"
     portrait = force_portrait.lower() not in ("false", "0", "no")
     burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
     subtitle_style = _normalize_subtitle_style(
@@ -2537,7 +2717,7 @@ async def submit_job(
     asyncio.create_task(_run_video_job(
         job_id, raw_video_path, voice_path, output_path,
         job_dir, prompt_text, voice_model, duration_mode, portrait, burn_subs,
-        subtitle_style, subtitle_font_id, log_id,
+        subtitle_style, subtitle_font_id, log_id, output_ratio, quality,
     ))
 
     logger.info("SSE job submitted: %s | voice=%s | mode=%s | subtitle=%s",

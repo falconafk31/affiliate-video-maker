@@ -269,6 +269,7 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `POST` | `/api/ai-config/active-text-model` | ✅ | Pilih model teks aktif (`""` = Pollinations bawaan) |
 | `POST` | `/api/ai-config/test` | ✅ | 🧪 Test koneksi provider (teks / voice / Pollinations) |
 | `POST` | `/api/ai-config/defaults` | ✅ | Atur model bawaan (Pollinations teks & audio, voice Edge-TTS) |
+| `POST` | `/api/voice-preview` | ✅ | 🔊 Contoh suara singkat untuk voice terpilih |
 | `GET` | `/api/videos/{file}` | — | Static: hasil render |
 | `GET` | `/api/audios/{file}` | — | Static: voiceover |
 | `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt`/`.ass` |
@@ -287,7 +288,9 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `log_id` | string | ❌ | — | UUID from generation log (links video to history and updates edited scripts) |
 | `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS), `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations), atau `custom:{id}` (model suara OpenAI-compatible dari Pengaturan AI ⚙️) |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
-| `force_portrait` | string | ❌ | `true` | Crop video ke 9:16 |
+| `force_portrait` | string | ❌ | `true` | *(berlaku untuk rasio `9:16`)* Crop video ke 9:16 |
+| `output_ratio` | string | ❌ | `9:16` | Rasio hasil render: `9:16` (vertikal) / `1:1` (kotak) / `16:9` (lanskap) |
+| `quality` | string | ❌ | `hemat` | `hemat` (CRF 28 — cepat, file kecil) / `hd` (CRF 23 — lebih tajam) |
 | `burn_subtitles` | string | ❌ | `false` | `true` / `false` — burn caption auto-subtitle ke video |
 | `subtitle_font_id` | string | ❌ | *(bawaan)* | ID custom font dari `POST /api/fonts/upload`; kosongkan = DejaVu Sans |
 | `subtitle_size` | string | ❌ | `md` | `sm` / `md` / `lg` |
@@ -301,6 +304,13 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 \* `video` wajib diisi **kecuali** `library_video_id` dipakai (jobs/submit).
 
 **Response:** `{ "status": "success", "video_url": "/api/videos/{id}.mp4", "subtitle_url": "/api/subs/{id}.srt", "log_id": ... }`
+
+> **Rate limit (anti boros kuota):** `generate-hook` 30/menit · `generate-audio` 10/menit ·
+> `voice-preview` 6/menit · test koneksi 60/menit — per user. Terlampaui → `429`.
+>
+> **Catatan kecepatan voice:** `voice_model` bertipe `chat_audio` (GPT-Audio style) diproses
+> server provider **secepat model audio multi-modal mereka** — umumnya lebih lambat dari TTS
+> biasa. Field `speed` hanya berlaku untuk endpoint `speech` (OpenAI TTS standar).
 
 ---
 
