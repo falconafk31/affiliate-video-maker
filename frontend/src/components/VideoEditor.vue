@@ -300,6 +300,47 @@
         </select>
       </div>
 
+      <!-- Auto Subtitle Burn-in (hanya mode video) -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          Auto Subtitle Burn-in
+          <span class="ml-2 text-xs text-slate-500">Opsional — dari skrip</span>
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            id="subtitle-on-btn"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="burnSubtitles
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="burnSubtitles = true"
+          >
+            <span class="text-lg">🔥</span>
+            <span class="text-xs font-semibold leading-tight">AKTIF</span>
+            <span class="text-xs opacity-60 leading-tight">Teks di tengah video</span>
+          </button>
+          <button
+            type="button"
+            id="subtitle-off-btn"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="!burnSubtitles
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="burnSubtitles = false"
+          >
+            <span class="text-lg">⚫</span>
+            <span class="text-xs font-semibold leading-tight">NONAKTIF</span>
+            <span class="text-xs opacity-60 leading-tight">Video polos tanpa teks</span>
+          </button>
+        </div>
+        <p v-if="burnSubtitles" class="text-[11px] text-slate-500">
+          Caption otomatis dari skrip di-burn permanen ke video (gaya TikTok: putih tebal,
+          outline hitam, di tengah layar). Timing mengikuti voiceover — paling akurat dengan
+          voice Edge-TTS. File .srt juga disimpan dan bisa diunduh dari halaman Logs.
+        </p>
+      </div>
+
       <!-- Duration Match Mode -->
       <div>
         <label class="block text-sm font-medium text-slate-300 mb-2">
@@ -475,7 +516,9 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:9000`
+// Base URL API: default kosong = same-origin "/api/..." (di-proxy Vite saat dev,
+// Nginx saat production). Override dengan VITE_API_BASE_URL bila backend beda origin.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const fileInput      = ref(null)
@@ -490,6 +533,7 @@ const serverError    = ref('')
 const outputVideoUrl = ref('')
 const outputAudioUrl = ref('')
 const durationMode   = ref('auto')
+const burnSubtitles  = ref(true)   // Auto subtitle burn-in: AKTIF / NONAKTIF
 const mode           = ref('video') // 'video' | 'audio'
 
 const showPreview    = ref(false)
@@ -526,7 +570,7 @@ onMounted(() => {
 })
 
 // Clear output results when key inputs change to prevent playing stale/unsynced audio/video
-watch([prompt, voiceModel, durationMode, selectedFile, mode, libraryVideo], () => {
+watch([prompt, voiceModel, durationMode, burnSubtitles, selectedFile, mode, libraryVideo], () => {
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
   showPreview.value = false
@@ -755,6 +799,7 @@ async function handleSubmit() {
       formData.append('prompt_text', prompt.value.trim())
       formData.append('voice_model', voiceModel.value)
       formData.append('duration_mode', durationMode.value)
+      formData.append('burn_subtitles', String(burnSubtitles.value))
       if (logId.value) formData.append('log_id', logId.value)
 
       if (libraryVideo.value) {

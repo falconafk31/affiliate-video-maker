@@ -40,6 +40,7 @@ logs/
 # Generated Media (managed by backend)
 backend/static/videos/*.mp4
 backend/static/audios/*.mp3
+backend/static/subs/*
 backend/*.mp3
 backend/temp_processing/
 backend/logs/*

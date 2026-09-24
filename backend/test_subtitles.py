@@ -1,0 +1,173 @@
+"""
+Test pipeline Auto Subtitle Burn-in:
+  1. split_script_into_captions  — pemecahan skrip jadi caption
+  2. build_caption_timings       — timing proporsional & word-boundary
+  3. generate_srt / generate_ass — format SRT & ASS (PlayRes = dimensi output)
+  4. merge_video_audio           — burn-in nyata via FFmpeg (libass)
+  5. rasio video tidak lazim     — dimensi genap (libx264 aman)
+
+Jalankan:  cd backend && ../.venv/bin/python test_subtitles.py
+"""
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from main import (
+    split_script_into_captions,
+    build_caption_timings,
+    generate_srt,
+    generate_ass,
+    build_subtitles,
+    merge_video_audio,
+    ffmpeg_supports_subtitles,
+    compute_output_dimensions,
+)
+
+PASS, FAIL = 0, 0
+
+
+def check(name: str, cond: bool, extra: str = ""):
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print(f"  ✅ {name}")
+    else:
+        FAIL += 1
+        print(f"  ❌ {name}  {extra}")
+
+
+print("═" * 60)
+print("1) split_script_into_captions")
+script = (
+    "Tau gak sih, masker aloe vera ini lagi diskon lima belas persen di Shopee! "
+    "Teksturnya ringan banget, langsung meresap ke kulit. "
+    "Aku udah pakai dua minggu dan jerawatku kempes. "
+    "Cek keranjang kuning sekarang sebelum kehabisan!"
+)
+caps = split_script_into_captions(script)
+print(f"     → {len(caps)} caption:")
+for c in caps:
+    print(f"       [{len(c):2d}] {c}")
+check("menghasilkan beberapa caption", len(caps) >= 3)
+check("semua caption ≤ 42 karakter (maks 2 baris)", all(len(c) <= 42 for c in caps),
+      str([len(c) for c in caps]))
+check("teks tidak hilang (total kata sama)",
+      len(re.findall(r"\S+", " ".join(caps))) == len(re.findall(r"\S+", script)))
+check("skrip kosong → []", split_script_into_captions("   ") == [])
+
+print("═" * 60)
+print("2) build_caption_timings")
+t_prop = build_caption_timings(caps, audio_duration=12.0, word_boundaries=None)
+check("proporsional: jumlah timing == jumlah caption", len(t_prop) == len(caps))
+check("proporsional: mulai dari awal", t_prop[0][0] <= 0.2)
+check("proporsional: berakhir ± di akhir audio", abs(t_prop[-1][1] - 12.0) < 0.6,
+      f"end={t_prop[-1][1]}")
+check("proporsional: monoton tanpa tumpang-tindih",
+      all(t_prop[i][1] <= t_prop[i + 1][0] + 1e-6 for i in range(len(t_prop) - 1)))
+
+words = re.findall(r"\S+", script)
+wb, t = [], 0.0
+for w in words:
+    dur = 12.0 / len(words)
+    wb.append({"start": round(t, 3), "end": round(t + dur * 0.9, 3), "text": w})
+    t += dur
+t_word = build_caption_timings(caps, audio_duration=12.0, word_boundaries=wb)
+check("word-boundary: jumlah timing == jumlah caption", len(t_word) == len(caps))
+check("word-boundary: caption pertama mulai ≈ awal audio", t_word[0][0] < 0.2)
+check("word-boundary: caption terakhir tahan sampai akhir audio",
+      abs(t_word[-1][1] - 12.0) < 0.01, f"end={t_word[-1][1]}")
+check("word-boundary: monoton tanpa tumpang-tindih",
+      all(t_word[i][1] <= t_word[i + 1][0] + 1e-6 for i in range(len(t_word) - 1)))
+
+t_fall = build_caption_timings(caps, 12.0, wb[:3])
+check("fallback saat token ≠ boundary", len(t_fall) == len(caps) and abs(t_fall[-1][1] - 12.0) < 0.6)
+
+print("═" * 60)
+print("3) generate_srt & generate_ass")
+srt = generate_srt(t_prop)
+check("format SRT: blok bernomor 1..N", srt.startswith("1\n") and f"\n{len(caps)}\n" in srt)
+check("format SRT: panah timing standar",
+      re.search(r"\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d", srt) is not None)
+
+ass = generate_ass(t_prop, play_w=720, play_h=1280)
+check("ASS: PlayResX/Y = dimensi output", "PlayResX: 720" in ass and "PlayResY: 1280" in ass)
+check("ASS: Dialogue dengan \\pos() absolut", "{\\pos(360,589)}" in ass)
+check("ASS: jumlah Dialogue == jumlah caption",
+      ass.count("Dialogue: ") == len(caps))
+check("ASS: font size skala 5.2% (67px @1280)", "DejaVu Sans,67," in ass)
+ass2 = generate_ass(t_prop, play_w=540, play_h=960)
+check("ASS: ukuran ikut resolusi (540x960 → font 50)", "PlayResX: 540" in ass2 and ",50," in ass2)
+
+check("compute_output_dimensions 9:16 pas → no-op",
+      compute_output_dimensions(720, 1280, True) == (720, 1280))
+check("compute_output_dimensions 4:5 → crop genap 758x1350",
+      compute_output_dimensions(1080, 1350, True) == (758, 1350),
+      str(compute_output_dimensions(1080, 1350, True)))
+check("compute_output_dimensions landscape → 134x240",
+      compute_output_dimensions(320, 240, True) == (134, 240),
+      str(compute_output_dimensions(320, 240, True)))
+
+print("═" * 60)
+print("4) Burn-in nyata via FFmpeg")
+check("FFmpeg punya filter ass/subtitles (libass)", ffmpeg_supports_subtitles())
+
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    raw = td / "raw.mp4"
+    aud = td / "voice.mp3"
+    out = td / "final.mp4"
+
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=30",
+                    "-t", "6", "-pix_fmt", "yuv420p", str(raw)],
+                   capture_output=True, check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+                    "-t", "5", "-b:a", "128k", str(aud)],
+                   capture_output=True, check=True)
+
+    built = build_subtitles(script, aud, td, word_boundaries=None, play_w=720, play_h=1280)
+    check("build_subtitles membuat (srt, ass)", built is not None
+          and built[0].exists() and built[1].exists())
+    srt_path, ass_path = built
+
+    merge_video_audio(raw, aud, out, duration_mode="auto", force_portrait=True,
+                      subtitle_ass=ass_path)
+    check("output render ada & > 50 KB", out.exists() and out.stat().st_size > 50_000,
+          f"size={out.stat().st_size if out.exists() else 0}")
+
+    dur_out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=noprint_wrappers=1:nokey=1", str(out)],
+                             capture_output=True, text=True).stdout.strip()
+    check("durasi output ≈ 5 detik (auto: video dipotong ke audio)",
+          abs(float(dur_out) - 5.0) < 0.3, f"dur={dur_out}")
+
+    frame = td / "frame_check.png"
+    subprocess.run(["ffmpeg", "-y", "-ss", "2.0", "-i", str(out), "-frames:v", "1", str(frame)],
+                   capture_output=True, check=True)
+    frame_dest = Path(__file__).parent / "static" / "subs" / "_test_frame.png"
+    frame_dest.parent.mkdir(parents=True, exist_ok=True)
+    frame_dest.write_bytes(frame.read_bytes())
+    print(f"     🖼  Frame verifikasi disimpan: {frame_dest}")
+
+    raw2, out2 = td / "raw_45.mp4", td / "final_45.mp4"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x900:rate=30",
+                    "-t", "3", "-pix_fmt", "yuv420p", str(raw2)],
+                   capture_output=True, check=True)
+    aud2 = td / "voice2.mp3"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=44100",
+                    "-t", "3", "-b:a", "128k", str(aud2)], capture_output=True, check=True)
+    ok_45 = True
+    try:
+        built2 = build_subtitles(script, aud2, td, play_w=758, play_h=1350)
+        merge_video_audio(raw2, aud2, out2, duration_mode="auto", force_portrait=True,
+                          subtitle_ass=built2[1])
+    except Exception as e:
+        ok_45 = False
+        print("     error:", e)
+    check("input 4:5 → render sukses (dimensi crop genap)", ok_45 and out2.exists())
+
+print("═" * 60)
+print(f"HASIL: {PASS} lulus, {FAIL} gagal")
+sys.exit(1 if FAIL else 0)

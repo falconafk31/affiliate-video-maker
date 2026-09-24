@@ -102,6 +102,9 @@ VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 AUDIOS_DIR = BASE_DIR / "static" / "audios"
 AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
 
+SUBS_DIR = BASE_DIR / "static" / "subs"
+SUBS_DIR.mkdir(parents=True, exist_ok=True)
+
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi"}
 API_TIMEOUT_SECONDS = 120
 
@@ -210,6 +213,13 @@ def clean_old_videos():
                 logger.info("Auto-deleted old audio: %s", f.name)
         except Exception as e:
             logger.error("Error deleting old audio %s: %s", f, e)
+    for f in SUBS_DIR.glob("*.srt"):
+        try:
+            if os.path.exists(f) and os.path.getmtime(f) < now - 7 * 86400:
+                os.remove(f)
+                logger.info("Auto-deleted old subtitle: %s", f.name)
+        except Exception as e:
+            logger.error("Error deleting old subtitle %s: %s", f, e)
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -254,6 +264,7 @@ def health_check():
 app.mount("/api/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
 app.mount("/api/audios", StaticFiles(directory=AUDIOS_DIR), name="audios")
 app.mount("/api/lib-static", StaticFiles(directory=LIBRARY_DIR), name="library_videos")
+app.mount("/api/subs", StaticFiles(directory=SUBS_DIR), name="subtitles")
 
 
 # ── Auth Endpoints ────────────────────────────────────────────────────────────
@@ -326,9 +337,13 @@ def cleanup_files(*paths: Path) -> None:
             pass
 
 
-async def generate_voice_from_pollinations(prompt: str, voice_model: str, output_path: Path):
+async def generate_voice_from_pollinations(prompt: str, voice_model: str, output_path: Path) -> list[dict] | None:
     """
     ASYNC: Calls Edge-TTS or Pollinations TTS API.
+
+    Mengembalikan word-boundary timing [{"start": dtk, "end": dtk, "text": str}, ...]
+    bila provider menyediakannya (Edge-TTS), selain itu None — dipakai untuk
+    penyelarasan timing subtitle.
     """
     if voice_model in ("id-ID-GadisNeural", "whisper"):
         import edge_tts
@@ -336,12 +351,29 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         logger.info("Generating voice via Edge-TTS | voice: %s (requested: %s), prompt: %s...", actual_voice, voice_model, prompt[:30])
         try:
             communicate = edge_tts.Communicate(prompt, actual_voice)
-            await communicate.save(str(output_path))
+            word_boundaries: list[dict] = []
+            audio_buf = bytearray()
+            async for chunk in communicate.stream():
+                ctype = chunk.get("type")
+                if ctype == "audio":
+                    audio_buf.extend(chunk.get("data", b""))
+                elif ctype == "WordBoundary":
+                    # offset & duration dalam unit 100 nanodetik (seperti TimeSpan ticks)
+                    word_boundaries.append({
+                        "start": chunk["offset"] / 1e7,
+                        "end": (chunk["offset"] + chunk["duration"]) / 1e7,
+                        "text": chunk.get("text", ""),
+                    })
+            with open(output_path, "wb") as f:
+                f.write(audio_buf)
             saved = output_path.stat().st_size
-            logger.info("Edge-TTS Audio saved: %s (%d bytes)", output_path.name, saved)
+            logger.info("Edge-TTS Audio saved: %s (%d bytes, %d word boundaries)",
+                        output_path.name, saved, len(word_boundaries))
             if saved < 512:
                 raise HTTPException(status_code=502, detail="Edge-TTS returned empty audio.")
-            return
+            return word_boundaries or None
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error("Edge-TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara Edge-TTS: {str(e)}")
@@ -406,7 +438,7 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
                         logger.info("openai-audio saved: %s (%d bytes)", output_path.name, saved)
                         if saved < 512:
                             raise HTTPException(status_code=502, detail="API returned empty audio file.")
-                        return
+                        return None
                     else:
                         raise HTTPException(status_code=502, detail="No audio data returned in API response.")
                 else:
@@ -464,6 +496,8 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
             logger.error("Unexpected TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara: {str(e)}")
 
+    return None
+
 
 
 
@@ -477,8 +511,320 @@ def get_media_duration(file_path: str) -> float:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return float(result.stdout.strip())
     except Exception as e:
-        logger.error("Failed to get duration for %s: %s", file_path, e)
+        logger.warning("ffprobe tidak tersedia/gagal untuk %s (%s) — fallback parse via ffmpeg", file_path, e)
+        try:
+            out = subprocess.run(["ffmpeg", "-i", file_path], capture_output=True, text=True)
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", out.stderr or "")
+            if m:
+                h, mnt, sec = int(m.group(1)), int(m.group(2)), float(m.group(3))
+                return h * 3600 + mnt * 60 + sec
+        except Exception as e2:
+            logger.error("Fallback duration parse gagal untuk %s: %s", file_path, e2)
         return 0.0
+
+
+def get_media_dimensions(file_path: str) -> tuple[int, int]:
+    try:
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", file_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        w_str, h_str = result.stdout.strip().split("x")[:2]
+        return int(float(w_str)), int(float(h_str))
+    except Exception:
+        try:
+            out = subprocess.run(["ffmpeg", "-i", file_path], capture_output=True, text=True)
+            m = re.search(r"Stream .*Video:.*?(\d{2,5})x(\d{2,5})", out.stderr or "")
+            if m:
+                return int(m.group(1)), int(m.group(2))
+        except Exception as e2:
+            logger.error("Fallback dimensi video gagal untuk %s: %s", file_path, e2)
+        return 0, 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTO SUBTITLE (burn-in) — pecah skrip → caption → timing → SRT/ASS → filter FFmpeg
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Gaya TikTok: putih tebal + outline hitam, blok 1–2 baris di tengah layar.
+# Ukuran font/outline dihitung per-resolusi di generate_ass() (satuan piksel,
+# karena PlayRes file ASS diset = dimensi output render).
+
+_FFMPEG_HAS_SUBTITLES: bool | None = None
+
+
+def ffmpeg_supports_subtitles() -> bool:
+    """Cek sekali apakah build FFmpeg punya filter 'ass'/'subtitles' (libass)."""
+    global _FFMPEG_HAS_SUBTITLES
+    if _FFMPEG_HAS_SUBTITLES is None:
+        try:
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                 capture_output=True, text=True, timeout=10)
+            _FFMPEG_HAS_SUBTITLES = re.search(
+                r"^\s*\S+\s+(?:ass|subtitles)\s", out.stdout or "", re.MULTILINE
+            ) is not None
+        except Exception as e:
+            logger.error("Gagal mendeteksi filter subtitles FFmpeg: %s", e)
+            _FFMPEG_HAS_SUBTITLES = False
+        logger.info("FFmpeg filter subtitles (libass): %s",
+                    "TERSEDIA" if _FFMPEG_HAS_SUBTITLES else "TIDAK ADA")
+    return bool(_FFMPEG_HAS_SUBTITLES)
+
+
+def split_script_into_captions(script: str, max_chars: int = 42) -> list[str]:
+    """Pecah skrip voiceover menjadi potongan caption 1–2 baris untuk burn-in."""
+    text = re.sub(r"\s+", " ", script or "").strip()
+    if not text:
+        return []
+
+    # 1) Pecah per kalimat di tanda baca akhir
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?;])\s+", text) if s.strip()]
+
+    # 2) Pecah kalimat panjang di koma, lalu di batas kata bila masih panjang
+    captions: list[str] = []
+    for sentence in sentences:
+        parts = [p.strip() for p in re.split(r"(?<=[,])\s+", sentence) if p.strip()]
+        buf = ""
+        for part in parts:
+            candidate = f"{buf} {part}".strip()
+            if len(candidate) <= max_chars:
+                buf = candidate
+                continue
+            if buf:
+                captions.append(buf)
+                buf = ""
+            while len(part) > max_chars:
+                # Pilih titik potong (spasi) yang mendekati 68% max_chars —
+                # potongan lebih seimbang & frase ("lima belas persen") tidak terbelah.
+                target = int(max_chars * 0.68)
+                best = -1
+                for m in re.finditer(r"\s", part[: max_chars + 1]):
+                    pos = m.start()
+                    if best < 0 or abs(pos - target) < abs(best - target):
+                        best = pos
+                cut = best if best > 0 else max_chars
+                captions.append(part[:cut].strip())
+                part = part[cut:].strip()
+            buf = part
+        if buf:
+            captions.append(buf)
+
+    # 3) Gabungkan potongan yang terlalu pendek agar enak dibaca (hard-cap max_chars
+    #    supaya selalu muat 2 baris saat burn-in): gabung ke kiri dulu, lalu ke kanan.
+    merged: list[str] = []
+    for cap in captions:
+        if merged and (len(cap) < 14 or len(merged[-1]) < 14) \
+                and len(merged[-1]) + 1 + len(cap) <= max_chars:
+            merged[-1] = f"{merged[-1]} {cap}"
+        else:
+            merged.append(cap)
+    final: list[str] = []
+    i = 0
+    while i < len(merged):
+        cur = merged[i]
+        if len(cur) < 14 and i + 1 < len(merged) \
+                and len(cur) + 1 + len(merged[i + 1]) <= max_chars:
+            final.append(f"{cur} {merged[i + 1]}")
+            i += 2
+        else:
+            final.append(cur)
+            i += 1
+    return final
+
+
+def build_caption_timings(
+    captions: list[str],
+    audio_duration: float,
+    word_boundaries: list[dict] | None = None,
+) -> list[tuple[float, float, str]]:
+    """
+    Susun timing (start, end, teks) per caption.
+    - Bila word_boundaries tersedia & jumlah token cocok → timing nyata per kata (akurat).
+    - Selain itu → distribusi proporsional berdasarkan panjang karakter ke durasi audio.
+    """
+    if not captions:
+        return []
+
+    token_counts = [len(re.findall(r"\S+", cap)) for cap in captions]
+    timings: list[list] = []
+
+    if word_boundaries and sum(token_counts) == len(word_boundaries):
+        logger.info("Subtitle timing: memakai word-boundary %d kata", len(word_boundaries))
+        idx = 0
+        for cap, n in zip(captions, token_counts):
+            words = word_boundaries[idx: idx + n]
+            idx += n
+            timings.append([float(words[0]["start"]), float(words[-1]["end"]), cap])
+    else:
+        if word_boundaries:
+            logger.warning("Subtitle timing: jumlah token (%d) != boundary (%d) — fallback proporsional",
+                           sum(token_counts), len(word_boundaries))
+        else:
+            logger.info("Subtitle timing: fallback proporsional (tanpa word-boundary)")
+        weights = [max(len(cap), 8) for cap in captions]
+        total_weight = sum(weights)
+        lead = min(0.15, max(audio_duration * 0.02, 0.0))
+        usable = max(audio_duration - lead - 0.05, 0.5)
+        cursor = lead
+        for cap, w in zip(captions, weights):
+            dur = usable * w / total_weight
+            timings.append([cursor, cursor + dur, cap])
+            cursor += dur
+
+    # Rapikan: tanpa tumpang-tindih, durasi minimal, caption terakhir tahan sampai akhir audio
+    for i, item in enumerate(timings):
+        if i + 1 < len(timings):
+            nxt = timings[i + 1][0]
+            item[1] = max(min(item[1] + 0.1, nxt), item[0] + 0.3)
+            if item[1] > nxt:
+                timings[i + 1][0] = item[1]
+        else:
+            # Caption terakhir selalu tahan sampai akhir audio (tanpa melewati)
+            item[1] = max(item[1], audio_duration)
+
+    return [(round(a, 3), round(b, 3), c) for a, b, c in timings]
+
+
+def _format_srt_time(seconds: float) -> str:
+    ms = int(round(max(seconds, 0.0) * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1_000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _format_ass_time(seconds: float) -> str:
+    cs = int(round(max(seconds, 0.0) * 100))
+    h, cs = divmod(cs, 360_000)
+    m, cs = divmod(cs, 6_000)
+    s, cs = divmod(cs, 100)
+    return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _wrap_caption_text(text: str, wrap_at: int = 20) -> list[str]:
+    """Pecah caption jadi maksimal 2 baris seimbang untuk burn-in (gaya TikTok)."""
+    text = text.strip()
+    if len(text) <= wrap_at + 3:
+        return [text]
+    words = text.split(" ")
+    total = len(text)
+    best_split, best_diff = None, 10 ** 9
+    for i in range(1, len(words)):
+        left = " ".join(words[:i])
+        right = " ".join(words[i:])
+        if len(left) <= wrap_at + 2 and len(right) <= wrap_at + 2:
+            diff = abs(len(left) - len(right))
+            if diff < best_diff:
+                best_split, best_diff = i, diff
+    if best_split is not None:
+        return [" ".join(words[:best_split]), " ".join(words[best_split:])]
+    # Terlalu panjang untuk 2 baris (jarang — caption dibatasi max_chars) → potong paksa
+    cut = text.rfind(" ", 0, wrap_at + 1) or wrap_at
+    return [text[:cut].strip(), text[cut:].strip()]
+
+
+def _sanitize_ass_text(text: str) -> str:
+    # Hilangkan karakter yang punya arti khusus di ASS ({}, \)
+    return text.replace("\\", "").replace("{", "(").replace("}", ")")
+
+
+def generate_srt(timings: list[tuple[float, float, str]]) -> str:
+    """Susun file SRT standar (untuk diunduh user) dari daftar timing caption."""
+    blocks = []
+    for i, (start, end, text) in enumerate(timings, 1):
+        body = "\n".join(_wrap_caption_text(_sanitize_ass_text(text)))
+        blocks.append(f"{i}\n{_format_srt_time(start)} --> {_format_srt_time(end)}\n{body}\n")
+    return "\n".join(blocks)
+
+
+def generate_ass(timings: list[tuple[float, float, str]], play_w: int, play_h: int) -> str:
+    """
+    Susun file ASS untuk burn-in. PlayRes = dimensi output render sehingga
+    ukuran font/outline eksak dalam piksel dan posisi dijamin via \\pos().
+    Gaya: putih tebal + outline hitam, blok 1–2 baris di tengah layar (TikTok).
+    """
+    play_w = max(int(play_w), 320)
+    play_h = max(int(play_h), 320)
+    font_size = max(round(play_h * 0.052), 16)     # ≈ 66px pada 1280 tinggi
+    outline = max(round(play_h * 0.007), 2)        # ≈ 9px pada 1280 tinggi
+    margin = max(round(play_w * 0.035), 16)
+    center_x = play_w // 2
+    center_y = round(play_h * 0.46)                # sedikit di atas tengah
+
+    header = (
+        "[Script Info]\n"
+        "; Generated by Affiliate Video Maker (auto subtitle burn-in)\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {play_w}\n"
+        f"PlayResY: {play_h}\n"
+        "WrapStyle: 0\n"
+        "ScaledBorderAndShadow: yes\n"
+        "\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: TikTok,DejaVu Sans,{font_size},&H00FFFFFF,&H000000FF,"
+        f"&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},0,5,"
+        f"{margin},{margin},0,1\n"
+        "\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    events = []
+    for start, end, text in timings:
+        lines = _wrap_caption_text(_sanitize_ass_text(text))
+        body = "\\N".join(lines)
+        events.append(
+            f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},"
+            f"TikTok,,0,0,0,,{{\\pos({center_x},{center_y})}}{body}"
+        )
+    return header + "\n".join(events) + "\n"
+
+
+def build_subtitles(
+    script: str,
+    audio_path: Path,
+    work_dir: Path,
+    word_boundaries: list[dict] | None = None,
+    play_w: int = 720,
+    play_h: int = 1280,
+) -> tuple[Path, Path] | None:
+    """
+    Bangun file subtitle dari skrip voiceover.
+    Mengembalikan (path_srt, path_ass) — SRT untuk diunduh user, ASS untuk burn-in.
+    None bila skrip kosong.
+    """
+    captions = split_script_into_captions(script)
+    if not captions:
+        return None
+    audio_dur = get_media_duration(str(audio_path))
+    if audio_dur <= 0:
+        logger.warning("Durasi audio tidak terdeteksi — timing subtitle memakai estimasi 1.5 dtk/caption")
+        audio_dur = max(1.5 * len(captions), 3.0)
+    timings = build_caption_timings(captions, audio_dur, word_boundaries)
+
+    srt_path = work_dir / "captions.srt"
+    ass_path = work_dir / "captions.ass"
+    srt_path.write_text(generate_srt(timings), encoding="utf-8")
+    ass_path.write_text(generate_ass(timings, play_w, play_h), encoding="utf-8")
+    logger.info("Subtitle dibuat: %s + %s (%d caption, audio %.2fs, %dx%d)",
+                srt_path.name, ass_path.name, len(captions), audio_dur, play_w, play_h)
+    return srt_path, ass_path
+
+
+def compute_output_dimensions(vw: int, vh: int, portrait: bool) -> tuple[int, int]:
+    """Dimensi output SETELAH crop 9:16 — harus sama persis dengan rumus crop di FFmpeg."""
+    if not vw or not vh:
+        return (720, 1280) if portrait else (1280, 720)
+    if portrait:
+        out_w = min(vw, int(vh * 9 / 32) * 2)   # = trunc(ih*9/16/2)*2
+        out_h = min(vh, int(vw * 8 / 9) * 2)    # = trunc(iw*16/9/2)*2
+        return out_w, out_h
+    return vw, vh
+
 
 def merge_video_audio(
     video_path: Path,
@@ -486,6 +832,7 @@ def merge_video_audio(
     output_path: Path,
     duration_mode: str = "auto",
     force_portrait: bool = True,
+    subtitle_ass: Path | None = None,
 ) -> None:
     try:
         logger.info("Merging video with FFmpeg: %s", video_path.name)
@@ -503,8 +850,12 @@ def merge_video_audio(
 
         vf = []
         if force_portrait:
-            vf.append("crop=ih*(9/16):ih")
-            
+            # Crop ke 9:16 dengan dimensi GENAP (libx264 menolak ganjil) dan aman
+            # untuk semua rasio input: landscape, 1:1, 4:5, 9:16, sampai 9:20.
+            vf.append("crop='min(iw,trunc(ih*9/16/2)*2)':'min(ih,trunc(iw*16/9/2)*2)'")
+        if subtitle_ass is not None:
+            vf.append(f"ass={subtitle_ass.name}")
+
         if vf:
             cmd.extend(["-vf", ",".join(vf)])
         
@@ -531,7 +882,15 @@ def merge_video_audio(
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
-        process = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo)
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            startupinfo=startupinfo,
+            # cwd ke folder subtitle supaya filter ass tidak butuh path absolut
+            # (aman untuk Windows & karakter khusus pada path)
+            cwd=str(subtitle_ass.parent) if subtitle_ass is not None else None,
+        )
         
         if process.returncode != 0:
             logger.error("FFmpeg error output:\n%s", process.stderr)
@@ -553,6 +912,7 @@ async def process_video(
     voice_model: str = Form("whisper"),
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
+    burn_subtitles: str = Form("false"),
     log_id: str = Form(None),
     current_user: str = Depends(get_current_user),
 ):
@@ -575,27 +935,51 @@ async def process_video(
         if raw_video_path.stat().st_size < 1024:
             raise HTTPException(status_code=400, detail="File video terlalu kecil.")
 
-        # CALL ASYNC VOICE GEN
-        await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+        # CALL ASYNC VOICE GEN (kembalikan word-boundary bila ada, utk timing subtitle)
+        word_boundaries = await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
         if duration_mode not in ("auto", "loop_video", "trim_audio"):
             duration_mode = "auto"
         portrait = force_portrait.lower() not in ("false", "0", "no")
+        burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
 
-        # MoviePy operations are heavy - run in thread pool
-        await asyncio.to_thread(merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait)
+        # Auto subtitle burn-in (opsional)
+        srt_path = ass_path = None
+        if burn_subs:
+            if not ffmpeg_supports_subtitles():
+                raise HTTPException(
+                    status_code=500,
+                    detail="FFmpeg di server tidak mendukung filter 'ass/subtitles' (libass). "
+                           "Matikan Auto Subtitle atau instal FFmpeg build lengkap.",
+                )
+            vw, vh = get_media_dimensions(str(raw_video_path))
+            play_w, play_h = compute_output_dimensions(vw, vh, portrait)
+            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries, play_w, play_h)
+            if built:
+                srt_path, ass_path = built
 
+        # FFmpeg merge (blocking) - run in thread pool
+        await asyncio.to_thread(
+            merge_video_audio, raw_video_path, voice_path, output_path,
+            duration_mode, portrait, ass_path,
+        )
+
+        # Selalu persist hasil (pakai job_id bila tidak ada log_id) agar video tidak hilang
+        target_id = log_id or job_id
         if log_id:
             update_hook_log_script(log_id, prompt_text)
-            shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
-            logger.info("Persisted video for log_id: %s", log_id)
+        shutil.copy(output_path, VIDEOS_DIR / f"{target_id}.mp4")
+        if srt_path is not None:
+            shutil.copy(srt_path, SUBS_DIR / f"{target_id}.srt")
+        logger.info("Persisted video for id: %s (subtitle: %s)", target_id, bool(srt_path))
 
         background_tasks.add_task(clean_old_videos)
         background_tasks.add_task(cleanup_files, job_dir)
 
         return {
             "status": "success",
-            "video_url": f"/api/videos/{log_id}.mp4" if log_id else None,
+            "video_url": f"/api/videos/{target_id}.mp4",
+            "subtitle_url": f"/api/subs/{target_id}.srt" if srt_path is not None else None,
             "log_id": log_id
         }
 
@@ -987,6 +1371,8 @@ def get_logs(current_user: str = Depends(get_current_user)):
                         row["video_url"] = f"/api/videos/{log_id}.mp4"
                     if (AUDIOS_DIR / f"{log_id}.mp3").exists():
                         row["audio_url"] = f"/api/audios/{log_id}.mp3"
+                    if (SUBS_DIR / f"{log_id}.srt").exists():
+                        row["srt_url"] = f"/api/subs/{log_id}.srt"
                 rows.append(row)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
@@ -1166,26 +1552,48 @@ async def _run_video_job(
     voice_model: str,
     duration_mode: str,
     portrait: bool,
+    burn_subtitles: bool,
     log_id: str | None,
 ):
     """Background coroutine that executes the full render pipeline with SSE status updates."""
     try:
         # Stage 1: Generate voice
         _set_job(job_id, status="generating_voice", progress=10, message="🎙️ Membuat AI voiceover...")
-        await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
+        word_boundaries = await generate_voice_from_pollinations(prompt_text, voice_model, voice_path)
 
-        # Stage 2: Merge video
+        # Stage 2: Auto subtitle (opsional)
+        srt_path = ass_path = None
+        if burn_subtitles:
+            _set_job(job_id, status="generating_subtitles", progress=30, message="📝 Menyusun subtitle otomatis...")
+            if not ffmpeg_supports_subtitles():
+                raise HTTPException(
+                    status_code=500,
+                    detail="FFmpeg di server tidak mendukung filter 'ass/subtitles' (libass). "
+                           "Matikan Auto Subtitle atau instal FFmpeg build lengkap.",
+                )
+            vw, vh = get_media_dimensions(str(raw_video_path))
+            play_w, play_h = compute_output_dimensions(vw, vh, portrait)
+            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries, play_w, play_h)
+            if built:
+                srt_path, ass_path = built
+
+        # Stage 3: Merge video
         _set_job(job_id, status="merging_video", progress=45, message="🎬 Menggabungkan video + audio...")
-        await asyncio.to_thread(merge_video_audio, raw_video_path, voice_path, output_path, duration_mode, portrait)
+        await asyncio.to_thread(
+            merge_video_audio, raw_video_path, voice_path, output_path,
+            duration_mode, portrait, ass_path,
+        )
 
-        # Stage 3: Persist
+        # Stage 4: Persist — selalu simpan (pakai job_id bila tidak ada log_id)
         _set_job(job_id, status="saving", progress=85, message="💾 Menyimpan hasil render...")
-        video_url = None
+        target_id = log_id or job_id
         if log_id:
             update_hook_log_script(log_id, prompt_text)
-            shutil.copy(output_path, VIDEOS_DIR / f"{log_id}.mp4")
-            video_url = f"/api/videos/{log_id}.mp4"
-            logger.info("SSE job persisted video for log_id: %s", log_id)
+        shutil.copy(output_path, VIDEOS_DIR / f"{target_id}.mp4")
+        if srt_path is not None:
+            shutil.copy(srt_path, SUBS_DIR / f"{target_id}.srt")
+        video_url = f"/api/videos/{target_id}.mp4"
+        logger.info("SSE job persisted video for id: %s (subtitle: %s)", target_id, bool(srt_path))
 
         _set_job(
             job_id,
@@ -1193,6 +1601,7 @@ async def _run_video_job(
             progress=100,
             message="✅ Selesai!",
             video_url=video_url,
+            subtitle_url=f"/api/subs/{target_id}.srt" if srt_path is not None else None,
         )
         cleanup_files(job_dir)
         clean_old_videos()
@@ -1213,6 +1622,7 @@ async def submit_job(
     voice_model: str = Form("id-ID-GadisNeural"),
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
+    burn_subtitles: str = Form("false"),
     log_id: str = Form(None),
     library_video_id: str = Form(None),
     current_user: str = Depends(get_current_user),
@@ -1225,7 +1635,7 @@ async def submit_job(
     job_dir = TEMP_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # Determine video source: upload or library
+    # Tentukan sumber video: upload atau library (validasi sebelum diproses)
     if library_video_id:
         # Use video from library
         with LIBRARY_LOCK:
@@ -1239,6 +1649,10 @@ async def submit_job(
         raw_video_path = job_dir / lib_path.name
         shutil.copy(lib_path, raw_video_path)
     else:
+        if video is None or not video.filename:
+            cleanup_files(job_dir)
+            raise HTTPException(status_code=400,
+                                detail="Wajib upload video atau pilih video dari library.")
         suffix = Path(video.filename).suffix.lower()
         if suffix not in {".mp4", ".mov", ".avi"}:
             suffix = ".mp4"
@@ -1255,6 +1669,7 @@ async def submit_job(
     if duration_mode not in ("auto", "loop_video", "trim_audio"):
         duration_mode = "auto"
     portrait = force_portrait.lower() not in ("false", "0", "no")
+    burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
 
     _set_job(job_id,
         status="queued",
@@ -1269,10 +1684,11 @@ async def submit_job(
     # Fire-and-forget background task
     asyncio.create_task(_run_video_job(
         job_id, raw_video_path, voice_path, output_path,
-        job_dir, prompt_text, voice_model, duration_mode, portrait, log_id,
+        job_dir, prompt_text, voice_model, duration_mode, portrait, burn_subs, log_id,
     ))
 
-    logger.info("SSE job submitted: %s | voice=%s | mode=%s", job_id, voice_model, duration_mode)
+    logger.info("SSE job submitted: %s | voice=%s | mode=%s | subtitle=%s",
+                job_id, voice_model, duration_mode, burn_subs)
     return {"status": "queued", "job_id": job_id}
 
 

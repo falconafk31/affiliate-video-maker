@@ -393,7 +393,7 @@ Chart.register(
   Tooltip, Legend
 )
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:9000`
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 const logs           = ref([])
 const authLogs       = ref([])

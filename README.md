@@ -7,6 +7,8 @@
 ![AI](https://img.shields.io/badge/AI-Pollinations%20AI-FF6B35)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
+📖 **Dokumentasi lain:** [CHANGELOG.md](./CHANGELOG.md) · [ROADMAP.md](./ROADMAP.md) · [LAPORAN_ANALISIS.md](./LAPORAN_ANALISIS.md) · [DEPLOYMENT.md](./DEPLOYMENT.md) · [DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS.md)
+
 ---
 ## ✨ Screenshoot
 1. https://plain-apac-prod-public.komododecks.com/202606/03/8rScV1onp4G5E4TcbNSo/image.png
@@ -19,13 +21,14 @@
 | Feature | Description |
 |---|---|
 | 🤖 **AI Hook Generator** | Auto-generate Indonesian TikTok & Shopee affiliate hooks from a product name |
+| 🔥 **Auto Subtitle Burn-in** | Caption gaya TikTok otomatis dari skrip (putih tebal + outline hitam, di tengah video) — bisa **AKTIF / NONAKTIF** per render; timing mengikuti voiceover (akurat via word-boundary Edge-TTS), file `.srt` ikut disimpan & bisa diunduh dari Logs |
 | 🎙️ **Dual AI Voiceover** | **Edge-TTS** (natural Indonesian female Gadis voice) + **Pollinations GPT-Audio** (`openai-audio` model with optimized indonesian affiliate narrator prompt) |
 | 🎬 **Native FFmpeg Merge** | 10x faster and RAM-efficient raw FFmpeg backend rendering (completely replaced heavy MoviePy) |
 | ⚡ **Extreme Performance** | Lazy-loaded Vue Router, Mobile-optimized touch UI, and GZIP payload compression |
 | 🎨 **Retro 8-Bit UI** | Beautiful, lightweight Cyberpunk/Retro pixel UI without heavy CSS blur filters (60 FPS scrolling) |
 | 🔄 **Cache-Busting** | Timestamps appended to URLs to prevent browser from playing cached/old voice files when regenerating |
-| 🕒 **7-Day Video Log** | Rendered videos are saved and accessible via the UI for 7 days (auto-delete) |
-| 📊 **Log Prompt UI** | View generation history, play/download rendered videos, and see exact edited scripts |
+| 🕒 **7-Day Media Retention** | Rendered videos/audios/subtitles disimpan & bisa diakses dari UI selama 7 hari (auto-delete); Video Library 30 hari |
+| 📊 **Log Prompt UI** | View generation history, play/download rendered videos + SRT, and see exact edited scripts |
 | 🔁 **Smart Duration Sync** | 3 modes: Auto (smart loop), Loop Video, Trim Audio |
 | 🛠️ **MCP Server** | Exposes `generate_ai_voice` & `merge_video_and_voice` as MCP tools |
 
@@ -35,14 +38,15 @@
 
 ### Backend
 - **FastAPI** — REST API server (with GZipMiddleware)
-- **FFmpeg (Subprocess)** — Raw native video processing (Ultra-fast & RAM-efficient)
+- **FFmpeg (Subprocess)** — Raw native video processing + libass subtitle burn-in (Ultra-fast & RAM-efficient)
 - **Pollinations AI** — AI voiceover generation (no API cost for basic use; API key for credits)
+- **Edge-TTS** — Voiceover Indonesia gratis dengan word-boundary timing (untuk subtitle akurat)
 - **Security** — PyJWT for Token Auth & bcrypt for Hash checking
 - **Python-dotenv** — Environment configuration
 
 ### Frontend
 - **Vue.js 3** (Composition API)
-- **Vite** — Build tool
+- **Vite** — Build tool (+ dev proxy `/api` → backend)
 - **Vue Router** — Routing with Keep-Alive state persistence
 - **Tailwind CSS** — Styling
 - **Axios** — HTTP client (with global interceptors)
@@ -55,40 +59,45 @@
 affiliate-video-maker/
 ├── .gitignore
 ├── README.md
-├── ecosystem.config.js          ← PM2 deployment config
-```text
-affiliate-video-maker/
-├── .gitignore
-├── README.md
+├── CHANGELOG.md                 ← Riwayat perubahan
+├── ROADMAP.md                   ← Rencana pengembangan
+├── LAPORAN_ANALISIS.md          ← Analisis kode & saran perbaikan
 ├── docker-compose.yml           ← Docker deployment orchestration
 ├── DOCKER_INSTRUCTIONS.md       ← Docker deployment guide
-├── ecosystem.config.js          ← PM2 deployment config
 ├── backend/
 │   ├── .env                     ← GITIGNORED — Holds JWT Secret & Password Hash
 │   ├── .env.example
-│   ├── main.py                  ← FastAPI app & Auth Routes
+│   ├── main.py                  ← FastAPI app, Auth, Render & Subtitle pipeline
+│   ├── mcp_server.py            ← MCP tools (generate_ai_voice & merge_video_and_voice)
 │   ├── generate_hash.py         ← Script to generate bcrypt password hash
 │   ├── requirements.txt
+│   ├── test_subtitles.py        ← Unit test pipeline subtitle burn-in
+│   ├── test_api_e2e.py          ← E2E offline job pipeline (TTS di-stub)
 │   ├── logs/
 │   │   ├── hook_logs.csv        ← CSV database for generated hooks
-│   │   └── login_logs.csv       ← CSV database for authentication attempts
-│   ├── static/                  ← Persistent Video & Audio library
+│   │   ├── login_logs.csv       ← CSV database for authentication attempts
+│   │   └── video_library.json   ← Metadata Video Library
+│   ├── static/
+│   │   ├── videos/              ← Hasil render (retensi 7 hari, auto-delete)
+│   │   ├── audios/              ← Voiceover MP3 (retensi 7 hari)
+│   │   ├── subs/                ← File subtitle .srt hasil generate (retensi 7 hari)
+│   │   └── library/             ← Video raw library (retensi 30 hari)
 │   └── temp_processing/         ← Auto-created runtime temp folder
 └── frontend/
-    ├── .env                     ← VITE_API_BASE_URL config
+    ├── .env                     ← OPSIONAL — VITE_API_BASE_URL bila backend beda origin
     ├── index.html
     ├── package.json
     ├── tailwind.config.js
-    ├── vite.config.js
+    ├── vite.config.js           ← Dev server + proxy /api → backend
     └── src/
-        ├── main.js
+        ├── main.js              ← Axios interceptors (JWT) + bootstrap
         ├── style.css
         ├── App.vue
         ├── router/
         │   └── index.js         ← Route definitions & Auth guards
         └── components/
             ├── Login.vue        ← 8-bit retro login page
-            ├── VideoEditor.vue  ← Main UI component (Editor)
+            ├── VideoEditor.vue  ← Main UI component (Editor + Subtitle toggle)
             ├── VideoLibrary.vue ← Video Library component
             └── LogViewer.vue    ← Logs, Analytics & Security Logs
 ```
@@ -100,7 +109,7 @@ affiliate-video-maker/
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- **FFmpeg** installed and available in PATH → [Download](https://ffmpeg.org/download.html)
+- **FFmpeg** installed and available in PATH (build dengan libass untuk fitur subtitle) → [Download](https://ffmpeg.org/download.html)
 - Pollinations AI API key → [Get key](https://enter.pollinations.ai)
 
 ### 1. Backend Setup
@@ -114,12 +123,11 @@ cp .env.example .env
 # Edit backend/.env — add your API key, Hash, and JWT Secret
 # See "Environment Variables" section below for details
 
-
 # Install dependencies
 pip install -r requirements.txt
 
-# Start development server
-python -m uvicorn main:app --reload --port 8000
+# Start development server (port 9000 — sama dengan VITE_API_PROXY_TARGET default)
+python -m uvicorn main:app --reload --port 9000
 ```
 
 ### 2. Frontend Setup
@@ -134,7 +142,27 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser. (Note: Backend must be running on port 9000).
+Open **http://localhost:5173** in your browser.
+
+> **Catatan lokal:**
+> - Frontend memanggil API secara relatif (`/api/...`) dan Vite otomatis me-*proxy* ke
+>   `http://127.0.0.1:9000` (atur env `VITE_API_PROXY_TARGET` bila port backend beda).
+>   Bila backend berada di origin lain, set `VITE_API_BASE_URL` di `frontend/.env`.
+> - **Mode dev login:** jika `ADMIN_PASSWORD_HASH` dikosongkan, password tidak diperiksa —
+>   ketik **apa saja** di halaman login (khusus localhost). Untuk password sungguhan,
+>   isi `ADMIN_PASSWORD_HASH` (lihat bawah).
+
+### 3. Menjalankan Test
+
+```bash
+cd affiliate-video-maker/backend
+
+# Unit test pipeline subtitle burn-in (offline, butuh FFmpeg)
+../.venv/bin/python test_subtitles.py     # atau: python test_subtitles.py
+
+# E2E offline job pipeline + toggle subtitle (TTS di-stub, FFmpeg asli)
+../.venv/bin/python test_api_e2e.py
+```
 
 ---
 
@@ -147,13 +175,25 @@ POLLINATIONS_API_URL=https://gen.pollinations.ai
 POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
 
 # Security Configuration
-# (Hash di bawah ini adalah untuk password: "admin")
-ADMIN_PASSWORD_HASH=$2b$12$R.3C7hN/2tq2WJ1F51M0QO.014v4N/M1L8.oP9wG2bZ9Z1P3G
-JWT_SECRET=rahasia123456789
+ADMIN_PASSWORD_HASH=$2b$12$......dari-generate_hash.py......
+JWT_SECRET=<acak-panjang, mis. hasil openssl rand -hex 32>
 ```
 
-> **Cara membuat `ADMIN_PASSWORD_HASH`:**  
+> **Cara membuat `ADMIN_PASSWORD_HASH`:**
 > Jalankan perintah `python backend/generate_hash.py` di terminal lokalmu. Script akan memintamu memasukkan password, lalu mencetak kode hash (seperti `$2b$12$...`) yang bisa langsung kamu *copy-paste* ke file `.env`.
+>
+> **`ADMIN_PASSWORD_HASH` kosong = mode dev** (login tanpa verifikasi password — hanya untuk localhost).
+> **`JWT_SECRET`** jangan pakai nilai contoh di produksi — buat acak: `openssl rand -hex 32`.
+
+### Frontend (`frontend/.env` — opsional)
+
+```env
+# Hanya perlu jika backend ada di origin lain (mis. https://api.domain.com)
+# Kosongkan/default = same-origin "/api/..." (di-proxy Vite/Nginx)
+VITE_API_BASE_URL=
+# Target proxy Vite saat dev (default http://127.0.0.1:9000)
+VITE_API_PROXY_TARGET=http://127.0.0.1:9000
+```
 
 ---
 
@@ -164,6 +204,7 @@ Aplikasi ini dilengkapi sistem keamanan Single-Admin yang kuat:
 2. **JWT Guard**: Seluruh API krusial dilindungi oleh *JSON Web Token* middleware.
 3. **Anti-Bruteforce**: IP Address akan otomatis diblokir selama 15 menit jika gagal login 5 kali berturut-turut.
 4. **Security Logs**: Halaman `LogViewer` mencatat semua aktivitas login (SUKSES/GAGAL/BLOKIR).
+5. **Mode Dev**: `ADMIN_PASSWORD_HASH` kosong menonaktifkan verifikasi password — **hanya untuk localhost**, jangan dipakai di produksi.
 
 ---
 
@@ -175,37 +216,64 @@ Baca panduan lengkapnya di 👉 **[DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS
 
 ---
 
-## 🕒 Video Retention Policy
+## 🕒 Retention Policy
 
-Rendered videos are saved in `backend/static/videos/`. To keep the server storage clean:
-*   Videos are kept for **7 days**.
-*   A background task `clean_old_videos` automatically deletes files older than 7 days.
-*   Log entries in the UI will show a "-" placeholder if the physical video file has been deleted.
+| Media | Lokasi | Retensi |
+|---|---|---|
+| Video hasil render | `backend/static/videos/` | **7 hari** |
+| Audio voiceover | `backend/static/audios/` | **7 hari** |
+| Subtitle `.srt` | `backend/static/subs/` | **7 hari** |
+| Video Library | `backend/static/library/` | **30 hari** (env `VIDEO_LIBRARY_RETENTION_DAYS`) |
+
+Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. Entri log yang file medianya sudah dihapus akan menampilkan placeholder `-` di UI.
 
 ---
 
 ## 🌐 API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check + API status |
-| `GET` | `/api/logs` | Fetch hook generation history with video URLs |
-| `POST` | `/api/generate-hook` | Generate AI script + save to CSV log |
-| `POST` | `/api/process-video` | Render video + attach to existing log ID |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/health` | — | Health check + API status |
+| `POST` | `/api/login` | — | Login (body: `{password}`) → JWT |
+| `POST` | `/api/docs-login` | — | Login OAuth2 untuk Swagger docs |
+| `GET` | `/api/auth-logs` | ✅ | Riwayat 100 aktivitas login terakhir |
+| `POST` | `/api/generate-hook` | ✅ | Generate AI script + save to CSV log |
+| `POST` | `/api/generate-audio` | ✅ | Generate voiceover MP3 saja |
+| `POST` | `/api/process-video` | ✅ | Render video sinkron (satu langkah) |
+| `POST` | `/api/jobs/submit` | ✅ | Submit render job (async, progress via SSE) |
+| `GET` | `/api/jobs/{job_id}/stream` | —* | SSE progress job (status/progress/video_url) |
+| `GET` | `/api/logs` | ✅ | Riwayat generate + URL media yang masih ada |
+| `GET` | `/api/logs/download` | ✅ | Download `hook_logs.csv` |
+| `DELETE` | `/api/logs/clear` | ✅ | Reset semua log |
+| `GET` | `/api/library` | ✅ | Daftar video library |
+| `POST` | `/api/library/upload` | ✅ | Upload video ke library |
+| `DELETE` | `/api/library/{video_id}` | ✅ | Hapus video library |
+| `GET` | `/api/videos/{file}` | — | Static: hasil render |
+| `GET` | `/api/audios/{file}` | — | Static: voiceover |
+| `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt` |
+| `GET` | `/api/lib-static/{file}` | — | Static: video library |
 
-### POST `/api/process-video`
+\* Stream SSE tidak mengirim header `Authorization` (keterbatasan `EventSource`) — cukup aman karena `job_id` berupa UUID acak.
+
+### POST `/api/process-video` & `/api/jobs/submit`
 
 **Form Data:**
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `video` | File (.mp4) | ✅ | — | Raw video clip |
+| `video` | File (.mp4/.mov/.avi) | ✅* | — | Raw video clip |
 | `prompt_text` | string | ✅ | — | Voiceover script |
 | `log_id` | string | ❌ | — | UUID from generation log (links video to history and updates edited scripts) |
 | `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS) or `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations) |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
+| `force_portrait` | string | ❌ | `true` | Crop video ke 9:16 |
+| `burn_subtitles` | string | ❌ | `false` | `true` / `false` — burn caption auto-subtitle (gaya TikTok) ke video; file `.srt` disimpan di `static/subs/` |
+| `library_video_id` | string | ❌ | — | *(jobs/submit saja)* Pakai video dari Library, tanpa upload |
 
-**Response:** JSON format `{ "status": "success", "video_url": "/api/videos/{log_id}.mp4", "log_id": log_id }` or binary based on mode.
+\* `video` wajib diisi **kecuali** `library_video_id` dipakai (jobs/submit).
+
+**Response:** `{ "status": "success", "video_url": "/api/videos/{id}.mp4", "subtitle_url": "/api/subs/{id}.srt", "log_id": ... }`
+(`subtitle_url` hanya ada bila `burn_subtitles=true`.)
 
 ---
 
@@ -233,17 +301,38 @@ python mcp_server.py
 
 The frontend includes a built-in hook script generator. Just type a **product name** and select a platform:
 
-### TikTok Hooks (4 variations)
+### TikTok Hooks
 - 🔥 **Viral Impulsif** — High energy, FOMO-driven
 - 😱 **Shock & Reveal** — Curiosity/surprise angle
 - 💬 **Cerita Personal** — Authentic testimonial style
 - ⚡ **FOMO Urgency** — Scarcity + time pressure
 
-### Shopee Hooks (4 variations)
+### Shopee Hooks
 - 🛒 **Flash Sale** — Discount-focused
 - ⭐ **Review Jujur** — Honest review with voucher CTA
 - 🎁 **Bundle Deal** — Buy-more-save-more angle
 - 💎 **Premium Value** — Quality justification
+
+### V2 Hooks (universal — untuk kedua platform)
+- 🚀 **V2: Problem** — Problem-based, "itu gue banget" dalam 2 detik
+- 🚀 **V2: Personal** — Personal experience, terasa cerita teman
+- 🚀 **V2: Edukasi** — Insight gratis, bukan terasa diiklani
+- 🚀 **V2: Pro-Kontra** — Contra opinion yang bikin berhenti scroll
+- 🚀 **V2: Visual Shock** — Reaksi spontan menyaksikan sesuatu
+
+---
+
+## 🔥 Auto Subtitle Burn-in
+
+Caption gaya TikTok di-burn permanen ke video — **pilihan AKTIF / NONAKTIF** di Step 2 Editor.
+
+| Aspek | Detail |
+|---|---|
+| **Gaya** | Putih tebal + outline hitam, blok 1–2 baris, di tengah layar (sedikit di atas tengah) |
+| **Timing** | Word-boundary Edge-TTS (akurat per kata) · fallback proporsional panjang teks untuk GPT-Audio |
+| **Resolusi** | Font/outline dihitung proporsional dari dimensi output render |
+| **File SRT** | Disimpan di `static/subs/{id}.srt`, bisa diunduh dari tombol **SRT** di halaman Logs |
+| **Syarat** | Build FFmpeg dengan libass (filter `ass`/`subtitles`) |
 
 ---
 
@@ -263,20 +352,11 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for full VPS + PM2 setup guide.
 
 ---
 
-## 🔐 Environment Variables
+## 📈 Roadmap & Changelog
 
-### Backend (`backend/.env`)
-
-```env
-POLLINATIONS_API_URL=https://gen.pollinations.ai
-POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
-```
-
-### Frontend (`frontend/.env`)
-
-```env
-VITE_API_BASE_URL=https://your-domain.com
-```
+- Rencana pengembangan (fitur berikutnya, perbaikan keamanan, dll.) → **[ROADMAP.md](./ROADMAP.md)**
+- Riwayat perubahan rilis → **[CHANGELOG.md](./CHANGELOG.md)**
+- Hasil analisis kode lengkap (temuan bug/UX/performa) → **[LAPORAN_ANALISIS.md](./LAPORAN_ANALISIS.md)**
 
 ---
 
