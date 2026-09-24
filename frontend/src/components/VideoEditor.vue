@@ -341,6 +341,105 @@
         </p>
       </div>
 
+      <!-- 🎨 Custom Subtitle Style (hanya saat Auto Subtitle AKTIF) -->
+      <div v-if="mode === 'video' && burnSubtitles" class="space-y-3 p-3 border-2 border-dashed border-slate-700 bg-slate-900/40 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300">
+          🎨 Gaya Caption
+          <span class="ml-2 text-xs text-slate-500">Burn-in permanen</span>
+        </label>
+
+        <!-- Ukuran & posisi -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Ukuran</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="s in ['sm','md','lg']" :key="s" type="button"
+                      @click="subtitleStyle.size = s"
+                      :class="subtitleStyle.size === s ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ s === 'sm' ? 'Kecil' : s === 'md' ? 'Sedang' : 'Besar' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Posisi</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="p in ['top','center','bottom']" :key="p" type="button"
+                      @click="subtitleStyle.position = p"
+                      :class="subtitleStyle.position === p ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ p === 'top' ? 'Atas' : p === 'center' ? 'Tengah' : 'Bawah' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Warna teks -->
+        <div>
+          <span class="block text-xs text-slate-400 mb-1">Warna Teks</span>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(hex, cname) in SUBTITLE_COLORS" :key="cname" type="button"
+                    @click="subtitleStyle.color = cname" :title="cname"
+                    :class="subtitleStyle.color === cname ? 'border-brand-400 scale-110' : 'border-slate-700 hover:border-slate-500'"
+                    class="w-7 h-7 border-2 transition-all" :style="{ backgroundColor: hex }"></button>
+          </div>
+        </div>
+
+        <!-- Outline -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Tebal Outline</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="o in ['thin','md','thick']" :key="o" type="button"
+                      @click="subtitleStyle.outline = o"
+                      :class="subtitleStyle.outline === o ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ o === 'thin' ? 'Tipis' : o === 'md' ? 'Sedang' : 'Tebal' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Warna Outline</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="oc in ['black','white','none']" :key="oc" type="button"
+                      @click="subtitleStyle.outlineColor = oc"
+                      :class="subtitleStyle.outlineColor === oc ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ oc === 'black' ? 'Hitam' : oc === 'white' ? 'Putih' : 'Tanpa' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom font + kapital -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Font (TTF / OTF / TTC — maks 5 MB)</span>
+            <select v-model="subtitleStyle.fontId" class="input-retro text-xs">
+              <option value="">DejaVu Sans (bawaan)</option>
+              <option v-for="f in subtitleFonts" :key="f.id" :value="f.id">{{ f.display_name }} — {{ f.family }}</option>
+            </select>
+            <div class="flex gap-1 mt-1">
+              <label class="flex-1 cursor-pointer border-2 border-dashed border-slate-700 hover:border-brand-500 text-slate-400 text-xs py-1.5 text-center transition-all">
+                📂 Impor Font…
+                <input type="file" accept=".ttf,.otf,.ttc" class="hidden" @change="onFontFileChange" />
+              </label>
+              <button v-if="subtitleStyle.fontId" type="button" @click="deleteSubtitleFont(subtitleStyle.fontId)"
+                      class="px-2 border-2 border-red-800 text-red-400 hover:bg-red-900/40 text-xs transition-all">
+                Hapus
+              </button>
+            </div>
+            <p v-if="fontStatus" class="text-[11px] mt-1" :class="fontStatusIsError ? 'text-red-400' : 'text-emerald-400'">{{ fontStatus }}</p>
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 cursor-pointer select-none w-full border-2 border-slate-700 py-2 px-2">
+              <input type="checkbox" v-model="subtitleStyle.caps" class="accent-brand-500 w-4 h-4" />
+              <span class="text-xs text-slate-300">HURUF KAPITAL semua</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Duration Match Mode -->
       <div>
         <label class="block text-sm font-medium text-slate-300 mb-2">
@@ -536,6 +635,84 @@ const durationMode   = ref('auto')
 const burnSubtitles  = ref(true)   // Auto subtitle burn-in: AKTIF / NONAKTIF
 const mode           = ref('video') // 'video' | 'audio'
 
+// ── Custom Subtitle Style & Font ──────────────────────────────────────────────
+const SUBTITLE_COLORS = {
+  white:   '#ffffff',
+  yellow:  '#ffd60a',
+  cyan:    '#22d3ee',
+  magenta: '#e879f9',
+  green:   '#4ade80',
+  red:     '#f87171',
+  blue:    '#60a5fa',
+  orange:  '#fb923c',
+  black:   '#111827',
+}
+const subtitleStyle = reactive({
+  size: 'md',            // sm | md | lg
+  color: 'white',        // key SUBTITLE_COLORS
+  outline: 'md',         // thin | md | thick
+  outlineColor: 'black', // black | white | none
+  position: 'center',    // top | center | bottom
+  caps: false,
+  fontId: '',            // '' = DejaVu Sans bawaan
+})
+const subtitleFonts    = ref([])   // daftar custom font dari server
+const fontStatus       = ref('')
+const fontStatusIsError = ref(false)
+
+async function fetchSubtitleFonts() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/fonts`)
+    subtitleFonts.value = res.data.fonts || []
+  } catch { /* biarkan kosong bila gagal */ }
+}
+
+function flashFontStatus(msg, isError = false) {
+  fontStatus.value = msg
+  fontStatusIsError.value = isError
+  setTimeout(() => { fontStatus.value = '' }, 5000)
+}
+
+async function onFontFileChange(e) {
+  const file = e.target?.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  const okExt = /\.(ttf|otf|ttc)$/i.test(file.name)
+  if (!okExt) {
+    flashFontStatus('Format font tidak didukung. Gunakan .ttf, .otf, atau .ttc.', true)
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    flashFontStatus('Ukuran font maksimal 5 MB.', true)
+    return
+  }
+  const fd = new FormData()
+  fd.append('font', file)
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/fonts/upload`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    await fetchSubtitleFonts()
+    subtitleStyle.fontId = res.data.font.id
+    flashFontStatus(`✅ Font "${res.data.font.family}" siap dipakai.`)
+  } catch (err) {
+    flashFontStatus(err?.response?.data?.detail || 'Gagal upload font.', true)
+  }
+}
+
+async function deleteSubtitleFont(fontId) {
+  if (!fontId) return
+  if (!confirm('Hapus font custom ini?')) return
+  try {
+    await axios.delete(`${API_BASE_URL}/api/fonts/${fontId}`)
+    subtitleStyle.fontId = ''
+    await fetchSubtitleFonts()
+    flashFontStatus('Font dihapus.')
+  } catch (err) {
+    flashFontStatus(err?.response?.data?.detail || 'Gagal menghapus font.', true)
+  }
+}
+
 const showPreview    = ref(false)
 
 // SSE Progress
@@ -560,6 +737,7 @@ const errors = reactive({ video: '', prompt: '' })
 
 // Check sessionStorage for library video on mount (set by VideoLibrary.vue)
 onMounted(() => {
+  fetchSubtitleFonts()
   const stored = sessionStorage.getItem('library_video')
   if (stored) {
     try {
@@ -800,6 +978,13 @@ async function handleSubmit() {
       formData.append('voice_model', voiceModel.value)
       formData.append('duration_mode', durationMode.value)
       formData.append('burn_subtitles', String(burnSubtitles.value))
+      formData.append('subtitle_size', subtitleStyle.size)
+      formData.append('subtitle_color', subtitleStyle.color)
+      formData.append('subtitle_outline', subtitleStyle.outline)
+      formData.append('subtitle_outline_color', subtitleStyle.outlineColor)
+      formData.append('subtitle_position', subtitleStyle.position)
+      formData.append('subtitle_caps', String(subtitleStyle.caps))
+      formData.append('subtitle_font_id', subtitleStyle.fontId || '')
       if (logId.value) formData.append('log_id', logId.value)
 
       if (libraryVideo.value) {

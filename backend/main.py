@@ -572,6 +572,46 @@ def ffmpeg_supports_subtitles() -> bool:
     return bool(_FFMPEG_HAS_SUBTITLES)
 
 
+# ── Preset gaya caption (burn-in) — dipetakan ke style ASS ─────────────────────
+# Warna disimpan dalam notasi BGR libass (&H00BBGGRR).
+SUBTITLE_COLOR_PRESETS = {
+    "white":   "FFFFFF",
+    "yellow":  "00FFFF",   # #FFD400-ish → BGR
+    "cyan":    "FFFF00",
+    "magenta": "FF00FF",
+    "green":   "00FF00",
+    "red":     "0000FF",
+    "blue":    "FF0000",
+    "orange":  "00A5FF",
+    "black":   "000000",
+}
+SUBTITLE_SIZE_PRESETS    = {"sm": 0.040, "md": 0.052, "lg": 0.070}   # fraksi tinggi video
+SUBTITLE_OUTLINE_PRESETS = {"thin": 0.005, "md": 0.008, "thick": 0.013}
+SUBTITLE_POSITION_PRESETS = {"top": 0.22, "center": 0.46, "bottom": 0.80}
+SUBTITLE_DEFAULT_FONT = "DejaVu Sans"
+
+
+def _normalize_subtitle_style(
+    subtitle_size: str = "md",
+    subtitle_color: str = "white",
+    subtitle_outline_color: str = "black",
+    subtitle_outline: str = "md",
+    subtitle_position: str = "center",
+    subtitle_caps: str = "false",
+) -> dict:
+    """Validasi & petakan parameter gaya caption dari form menjadi preset tereksekusi."""
+    return {
+        "font_name": SUBTITLE_DEFAULT_FONT,
+        "size_frac": SUBTITLE_SIZE_PRESETS.get(subtitle_size, 0.052),
+        "color": SUBTITLE_COLOR_PRESETS.get(subtitle_color, "FFFFFF"),
+        "outline_color": (None if subtitle_outline_color == "none"
+                          else SUBTITLE_COLOR_PRESETS.get(subtitle_outline_color, "000000")),
+        "outline_frac": SUBTITLE_OUTLINE_PRESETS.get(subtitle_outline, 0.008),
+        "pos_frac": SUBTITLE_POSITION_PRESETS.get(subtitle_position, 0.46),
+        "caps": str(subtitle_caps).lower() not in ("false", "0", "no", ""),
+    }
+
+
 def split_script_into_captions(script: str, max_chars: int = 42) -> list[str]:
     """Pecah skrip voiceover menjadi potongan caption 1–2 baris untuk burn-in."""
     text = re.sub(r"\s+", " ", script or "").strip()
@@ -703,25 +743,51 @@ def _format_ass_time(seconds: float) -> str:
 
 
 def _wrap_caption_text(text: str, wrap_at: int = 20) -> list[str]:
-    """Pecah caption jadi maksimal 2 baris seimbang untuk burn-in (gaya TikTok)."""
+    """
+    Pecah caption jadi 1–3 baris SEIMBANG untuk burn-in (meminimalkan lebar
+    baris terpanjang, tanpa mengubah/menghilangkan kata).
+    """
     text = text.strip()
-    if len(text) <= wrap_at + 3:
+    if len(text) <= wrap_at:
         return [text]
-    words = text.split(" ")
-    total = len(text)
-    best_split, best_diff = None, 10 ** 9
-    for i in range(1, len(words)):
-        left = " ".join(words[:i])
-        right = " ".join(words[i:])
-        if len(left) <= wrap_at + 2 and len(right) <= wrap_at + 2:
-            diff = abs(len(left) - len(right))
-            if diff < best_diff:
-                best_split, best_diff = i, diff
-    if best_split is not None:
-        return [" ".join(words[:best_split]), " ".join(words[best_split:])]
-    # Terlalu panjang untuk 2 baris (jarang — caption dibatasi max_chars) → potong paksa
-    cut = text.rfind(" ", 0, wrap_at + 1) or wrap_at
-    return [text[:cut].strip(), text[cut:].strip()]
+    words = text.split()
+    n = len(words)
+    if n < 2:
+        return [text]
+
+    def width(i: int, j: int) -> int:
+        return sum(len(w) for w in words[i:j]) + (j - i - 1)
+
+    max_lines = min(3, max(1, -(-max(width(0, n), 1) // max(wrap_at, 1))))
+    INF = 10 ** 9
+
+    from functools import lru_cache
+
+    @lru_cache(maxsize=None)
+    def best(i: int, k: int):
+        """(biaya_maksimum_baris, titik_pemotongan) untuk words[i:] menjadi k baris."""
+        if k <= 1 or n - i <= 1:
+            return width(i, n), (n,)
+        best_cost, best_cuts = INF, None
+        for j in range(i + 1, n - k + 2):
+            w = width(i, j)
+            sub_cost, cuts = best(j, k - 1)
+            cost = max(w, sub_cost)
+            if cost < best_cost:
+                best_cost, best_cuts = cost, (j,) + cuts
+        return best_cost, best_cuts
+
+    best_cost, best_cuts = best(0, 1)
+    for k in range(2, max_lines + 1):
+        cost, cuts = best(0, k)
+        if cost < best_cost:
+            best_cost, best_cuts = cost, cuts
+
+    lines, prev = [], 0
+    for cut in best_cuts:
+        lines.append(" ".join(words[prev:cut]))
+        prev = cut
+    return [l for l in lines if l]
 
 
 def _sanitize_ass_text(text: str) -> str:
@@ -738,19 +804,28 @@ def generate_srt(timings: list[tuple[float, float, str]]) -> str:
     return "\n".join(blocks)
 
 
-def generate_ass(timings: list[tuple[float, float, str]], play_w: int, play_h: int) -> str:
+def generate_ass(
+    timings: list[tuple[float, float, str]],
+    play_w: int,
+    play_h: int,
+    style: dict | None = None,
+) -> str:
     """
     Susun file ASS untuk burn-in. PlayRes = dimensi output render sehingga
     ukuran font/outline eksak dalam piksel dan posisi dijamin via \\pos().
-    Gaya: putih tebal + outline hitam, blok 1–2 baris di tengah layar (TikTok).
+    Gaya bisa dikustomisasi (font/ukuran/warna/outline/posisi/kapital) via `style`.
     """
     play_w = max(int(play_w), 320)
     play_h = max(int(play_h), 320)
-    font_size = max(round(play_h * 0.052), 16)     # ≈ 66px pada 1280 tinggi
-    outline = max(round(play_h * 0.007), 2)        # ≈ 9px pada 1280 tinggi
+    st = style or _normalize_subtitle_style()
+
+    font_size = max(round(play_h * st["size_frac"]), 16)
+    outline_col = st["outline_color"]
+    outline = max(round(play_h * st["outline_frac"]), 2) if outline_col else 0
     margin = max(round(play_w * 0.035), 16)
     center_x = play_w // 2
-    center_y = round(play_h * 0.46)                # sedikit di atas tengah
+    center_y = round(play_h * st["pos_frac"])
+    wrap_at = max(10, int((play_w - 2 * margin) / (0.50 * font_size)))
 
     header = (
         "[Script Info]\n"
@@ -766,8 +841,8 @@ def generate_ass(timings: list[tuple[float, float, str]], play_w: int, play_h: i
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: TikTok,DejaVu Sans,{font_size},&H00FFFFFF,&H000000FF,"
-        f"&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},0,5,"
+        f"Style: TikTok,{st['font_name']},{font_size},&H00{st['color']},&H000000FF,"
+        f"&H00{outline_col or '000000'},&H80000000,-1,0,0,0,100,100,0,0,1,{outline},0,5,"
         f"{margin},{margin},0,1\n"
         "\n"
         "[Events]\n"
@@ -775,7 +850,10 @@ def generate_ass(timings: list[tuple[float, float, str]], play_w: int, play_h: i
     )
     events = []
     for start, end, text in timings:
-        lines = _wrap_caption_text(_sanitize_ass_text(text))
+        body_text = _sanitize_ass_text(text)
+        if st["caps"]:
+            body_text = body_text.upper()
+        lines = _wrap_caption_text(body_text, wrap_at)
         body = "\\N".join(lines)
         events.append(
             f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},"
@@ -791,12 +869,22 @@ def build_subtitles(
     word_boundaries: list[dict] | None = None,
     play_w: int = 720,
     play_h: int = 1280,
+    style: dict | None = None,
+    font_id: str = "",
 ) -> tuple[Path, Path] | None:
     """
     Bangun file subtitle dari skrip voiceover.
     Mengembalikan (path_srt, path_ass) — SRT untuk diunduh user, ASS untuk burn-in.
+    `font_id` opsional: custom font (TTF/OTF/TTC) yang di-upload user — disalin ke
+    work_dir agar bisa dimuat FFmpeg via fontsdir tanpa instalasi sistem.
     None bila skrip kosong.
     """
+    st = dict(style) if style else _normalize_subtitle_style()
+
+    custom = resolve_custom_font(font_id, work_dir) if font_id else None
+    if custom:
+        st["font_name"] = custom[0]
+
     captions = split_script_into_captions(script)
     if not captions:
         return None
@@ -809,9 +897,10 @@ def build_subtitles(
     srt_path = work_dir / "captions.srt"
     ass_path = work_dir / "captions.ass"
     srt_path.write_text(generate_srt(timings), encoding="utf-8")
-    ass_path.write_text(generate_ass(timings, play_w, play_h), encoding="utf-8")
-    logger.info("Subtitle dibuat: %s + %s (%d caption, audio %.2fs, %dx%d)",
-                srt_path.name, ass_path.name, len(captions), audio_dur, play_w, play_h)
+    ass_path.write_text(generate_ass(timings, play_w, play_h, st), encoding="utf-8")
+    logger.info("Subtitle dibuat: %s + %s (%d caption, audio %.2fs, %dx%d, font=%s)",
+                srt_path.name, ass_path.name, len(captions), audio_dur, play_w, play_h,
+                st["font_name"])
     return srt_path, ass_path
 
 
@@ -854,7 +943,12 @@ def merge_video_audio(
             # untuk semua rasio input: landscape, 1:1, 4:5, 9:16, sampai 9:20.
             vf.append("crop='min(iw,trunc(ih*9/16/2)*2)':'min(ih,trunc(iw*16/9/2)*2)'")
         if subtitle_ass is not None:
-            vf.append(f"ass={subtitle_ass.name}")
+            ass_filter = f"ass={subtitle_ass.name}"
+            # Font custom (hasil upload) disalin ke folder kerja — muat via fontsdir
+            # relatif (bebas masalah escaping path di Windows/karakter khusus).
+            if any(subtitle_ass.parent.glob("*.tt[fc]")) or any(subtitle_ass.parent.glob("*.otf")):
+                ass_filter += ":fontsdir=."
+            vf.append(ass_filter)
 
         if vf:
             cmd.extend(["-vf", ",".join(vf)])
@@ -913,6 +1007,13 @@ async def process_video(
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
     burn_subtitles: str = Form("false"),
+    subtitle_font_id: str = Form(""),
+    subtitle_size: str = Form("md"),
+    subtitle_color: str = Form("white"),
+    subtitle_outline_color: str = Form("black"),
+    subtitle_outline: str = Form("md"),
+    subtitle_position: str = Form("center"),
+    subtitle_caps: str = Form("false"),
     log_id: str = Form(None),
     current_user: str = Depends(get_current_user),
 ):
@@ -942,6 +1043,10 @@ async def process_video(
             duration_mode = "auto"
         portrait = force_portrait.lower() not in ("false", "0", "no")
         burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
+        subtitle_style = _normalize_subtitle_style(
+            subtitle_size, subtitle_color, subtitle_outline_color,
+            subtitle_outline, subtitle_position, subtitle_caps,
+        )
 
         # Auto subtitle burn-in (opsional)
         srt_path = ass_path = None
@@ -954,7 +1059,8 @@ async def process_video(
                 )
             vw, vh = get_media_dimensions(str(raw_video_path))
             play_w, play_h = compute_output_dimensions(vw, vh, portrait)
-            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries, play_w, play_h)
+            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries,
+                                    play_w, play_h, subtitle_style, subtitle_font_id)
             if built:
                 srt_path, ass_path = built
 
@@ -971,6 +1077,8 @@ async def process_video(
         shutil.copy(output_path, VIDEOS_DIR / f"{target_id}.mp4")
         if srt_path is not None:
             shutil.copy(srt_path, SUBS_DIR / f"{target_id}.srt")
+        if ass_path is not None:
+            shutil.copy(ass_path, SUBS_DIR / f"{target_id}.ass")
         logger.info("Persisted video for id: %s (subtitle: %s)", target_id, bool(srt_path))
 
         background_tasks.add_task(clean_old_videos)
@@ -1521,6 +1629,150 @@ def library_delete(video_id: str,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CUSTOM FONTS — untuk subtitle burn-in (format standar: TTF / OTF / TTC)
+# ══════════════════════════════════════════════════════════════════════════════
+FONTS_DIR       = BASE_DIR / "static" / "fonts"
+FONTS_DIR.mkdir(parents=True, exist_ok=True)
+FONTS_META_FILE = BASE_DIR / "logs" / "fonts.json"
+FONTS_LOCK      = threading.Lock()
+ALLOWED_FONT_EXTENSIONS = {".ttf", ".otf", ".ttc"}
+MAX_FONT_BYTES  = 5 * 1024 * 1024  # 5 MB
+
+
+def _read_fonts_meta() -> list:
+    if not FONTS_META_FILE.exists():
+        return []
+    try:
+        with open(FONTS_META_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _write_fonts_meta(entries: list) -> None:
+    FONTS_META_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(FONTS_META_FILE, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
+
+def _extract_font_family(path: Path) -> str | None:
+    """Baca nama family asli dari file font standar (TTF/OTF/TTC) via fontTools."""
+    try:
+        from fontTools.ttLib import TTFont, TTCollection
+        if path.suffix.lower() == ".ttc":
+            coll = TTCollection(str(path), lazy=True)
+            if not coll.fonts:
+                return None
+            name = coll.fonts[0]["name"]
+        else:
+            name = TTFont(str(path), lazy=True)["name"]
+        family = name.getDebugName(16) or name.getDebugName(1)  # typographic family → family
+        return family.strip() if family else None
+    except Exception as e:
+        logger.error("Gagal membaca nama family font %s: %s", path, e)
+        return None
+
+
+def resolve_custom_font(font_id: str, work_dir: Path) -> tuple[str, Path] | None:
+    """
+    Salin file font custom ke folder kerja (untuk opsi fontsdir FFmpeg) dan
+    kembalikan (nama_family, path_file). None bila font_id kosong/tidak ditemukan.
+    """
+    if not font_id:
+        return None
+    entry = next((e for e in _read_fonts_meta() if e.get("id") == font_id), None)
+    if not entry:
+        return None
+    src = FONTS_DIR / entry["filename"]
+    if not src.exists():
+        return None
+    dest = work_dir / entry["filename"]
+    shutil.copy(src, dest)
+    logger.info("Custom font disiapkan: %s (%s)", entry["family"], entry["filename"])
+    return entry["family"], dest
+
+
+@app.post("/api/fonts/upload")
+async def fonts_upload(
+    font: UploadFile = File(...),
+    display_name: str = Form(""),
+    current_user: str = Depends(get_current_user),
+):
+    """Upload custom font (TTF/OTF/TTC) untuk subtitle burn-in."""
+    suffix = Path(font.filename or "").suffix.lower()
+    if suffix not in ALLOWED_FONT_EXTENSIONS:
+        raise HTTPException(status_code=400,
+                            detail="Format font tidak didukung. Gunakan .ttf, .otf, atau .ttc "
+                                   "(format standar TrueType/OpenType).")
+
+    font_id = uuid.uuid4().hex
+    dest_path = FONTS_DIR / f"{font_id}{suffix}"
+    try:
+        with open(dest_path, "wb") as buf:
+            shutil.copyfileobj(font.file, buf)
+        size = dest_path.stat().st_size
+        if size < 64:
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="File font terlalu kecil / kosong.")
+        if size > MAX_FONT_BYTES:
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="Ukuran font maksimal 5 MB.")
+        family = _extract_font_family(dest_path)
+        if not family:
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400,
+                                detail="File font tidak valid atau tidak punya nama family.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan font: {e}")
+
+    entry = {
+        "id": font_id,
+        "filename": dest_path.name,
+        "family": family,
+        "display_name": display_name.strip() or family,
+        "size": size,
+        "uploaded_at": time.time(),
+    }
+    with FONTS_LOCK:
+        entries = _read_fonts_meta()
+        entries.append(entry)
+        _write_fonts_meta(entries)
+    logger.info("Font upload: %s (%s, %d bytes)", entry["display_name"], family, size)
+    return {"status": "success", "font": entry}
+
+
+@app.get("/api/fonts")
+def fonts_list(current_user: str = Depends(get_current_user)):
+    """Daftar custom font yang tersedia untuk subtitle."""
+    with FONTS_LOCK:
+        entries = _read_fonts_meta()
+    result = [e for e in entries if (FONTS_DIR / e["filename"]).exists()]
+    result.sort(key=lambda e: e.get("uploaded_at", 0), reverse=True)
+    return {"total": len(result), "fonts": result}
+
+
+@app.delete("/api/fonts/{font_id}")
+def fonts_delete(font_id: str, current_user: str = Depends(get_current_user)):
+    """Hapus custom font."""
+    with FONTS_LOCK:
+        entries = _read_fonts_meta()
+        deleted = [e for e in entries if e["id"] == font_id]
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Font tidak ditemukan.")
+        for e in deleted:
+            try:
+                (FONTS_DIR / e["filename"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        _write_fonts_meta([e for e in entries if e["id"] != font_id])
+    logger.info("Font deleted: %s", font_id)
+    return {"status": "ok", "deleted_id": font_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SSE JOB SYSTEM — Non-blocking video render with real-time progress
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1553,6 +1805,8 @@ async def _run_video_job(
     duration_mode: str,
     portrait: bool,
     burn_subtitles: bool,
+    subtitle_style: dict | None,
+    subtitle_font_id: str,
     log_id: str | None,
 ):
     """Background coroutine that executes the full render pipeline with SSE status updates."""
@@ -1573,7 +1827,8 @@ async def _run_video_job(
                 )
             vw, vh = get_media_dimensions(str(raw_video_path))
             play_w, play_h = compute_output_dimensions(vw, vh, portrait)
-            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries, play_w, play_h)
+            built = build_subtitles(prompt_text, voice_path, job_dir, word_boundaries,
+                                    play_w, play_h, subtitle_style, subtitle_font_id)
             if built:
                 srt_path, ass_path = built
 
@@ -1592,6 +1847,8 @@ async def _run_video_job(
         shutil.copy(output_path, VIDEOS_DIR / f"{target_id}.mp4")
         if srt_path is not None:
             shutil.copy(srt_path, SUBS_DIR / f"{target_id}.srt")
+        if ass_path is not None:
+            shutil.copy(ass_path, SUBS_DIR / f"{target_id}.ass")
         video_url = f"/api/videos/{target_id}.mp4"
         logger.info("SSE job persisted video for id: %s (subtitle: %s)", target_id, bool(srt_path))
 
@@ -1623,6 +1880,13 @@ async def submit_job(
     duration_mode: str = Form("auto"),
     force_portrait: str = Form("true"),
     burn_subtitles: str = Form("false"),
+    subtitle_font_id: str = Form(""),
+    subtitle_size: str = Form("md"),
+    subtitle_color: str = Form("white"),
+    subtitle_outline_color: str = Form("black"),
+    subtitle_outline: str = Form("md"),
+    subtitle_position: str = Form("center"),
+    subtitle_caps: str = Form("false"),
     log_id: str = Form(None),
     library_video_id: str = Form(None),
     current_user: str = Depends(get_current_user),
@@ -1670,6 +1934,10 @@ async def submit_job(
         duration_mode = "auto"
     portrait = force_portrait.lower() not in ("false", "0", "no")
     burn_subs = burn_subtitles.lower() not in ("false", "0", "no")
+    subtitle_style = _normalize_subtitle_style(
+        subtitle_size, subtitle_color, subtitle_outline_color,
+        subtitle_outline, subtitle_position, subtitle_caps,
+    )
 
     _set_job(job_id,
         status="queued",
@@ -1684,7 +1952,8 @@ async def submit_job(
     # Fire-and-forget background task
     asyncio.create_task(_run_video_job(
         job_id, raw_video_path, voice_path, output_path,
-        job_dir, prompt_text, voice_model, duration_mode, portrait, burn_subs, log_id,
+        job_dir, prompt_text, voice_model, duration_mode, portrait, burn_subs,
+        subtitle_style, subtitle_font_id, log_id,
     ))
 
     logger.info("SSE job submitted: %s | voice=%s | mode=%s | subtitle=%s",

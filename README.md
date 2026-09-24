@@ -21,13 +21,15 @@
 | Feature | Description |
 |---|---|
 | 🤖 **AI Hook Generator** | Auto-generate Indonesian TikTok & Shopee affiliate hooks from a product name |
-| 🔥 **Auto Subtitle Burn-in** | Caption gaya TikTok otomatis dari skrip (putih tebal + outline hitam, di tengah video) — bisa **AKTIF / NONAKTIF** per render; timing mengikuti voiceover (akurat via word-boundary Edge-TTS), file `.srt` ikut disimpan & bisa diunduh dari Logs |
+| 🔥 **Auto Subtitle Burn-in** | Caption gaya TikTok otomatis dari skrip — bisa **AKTIF / NONAKTIF** per render; timing mengikuti voiceover (akurat via word-boundary Edge-TTS); file `.srt` bisa diunduh dari Logs |
+| 🎨 **Custom Subtitle Style** | Atur ukuran font, warna teks, warna & tebal outline, posisi (atas/tengah/bawah), dan HURUF KAPITAL — langsung dari editor |
+| 🔤 **Custom Font Import** | Upload font format standar **TTF / OTF / TTC** (maks 5 MB) untuk dipakai di subtitle — tanpa instalasi ke sistem |
 | 🎙️ **Dual AI Voiceover** | **Edge-TTS** (natural Indonesian female Gadis voice) + **Pollinations GPT-Audio** (`openai-audio` model with optimized indonesian affiliate narrator prompt) |
 | 🎬 **Native FFmpeg Merge** | 10x faster and RAM-efficient raw FFmpeg backend rendering (completely replaced heavy MoviePy) |
 | ⚡ **Extreme Performance** | Lazy-loaded Vue Router, Mobile-optimized touch UI, and GZIP payload compression |
 | 🎨 **Retro 8-Bit UI** | Beautiful, lightweight Cyberpunk/Retro pixel UI without heavy CSS blur filters (60 FPS scrolling) |
 | 🔄 **Cache-Busting** | Timestamps appended to URLs to prevent browser from playing cached/old voice files when regenerating |
-| 🕒 **7-Day Media Retention** | Rendered videos/audios/subtitles disimpan & bisa diakses dari UI selama 7 hari (auto-delete); Video Library 30 hari |
+| 🕒 **7-Day Media Retention** | Rendered videos/audios/subtitles disimpan & bisa diakses dari UI selama 7 hari (auto-delete); Video Library 30 hari; Font custom sampai dihapus manual |
 | 📊 **Log Prompt UI** | View generation history, play/download rendered videos + SRT, and see exact edited scripts |
 | 🔁 **Smart Duration Sync** | 3 modes: Auto (smart loop), Loop Video, Trim Audio |
 | 🛠️ **MCP Server** | Exposes `generate_ai_voice` & `merge_video_and_voice` as MCP tools |
@@ -41,6 +43,7 @@
 - **FFmpeg (Subprocess)** — Raw native video processing + libass subtitle burn-in (Ultra-fast & RAM-efficient)
 - **Pollinations AI** — AI voiceover generation (no API cost for basic use; API key for credits)
 - **Edge-TTS** — Voiceover Indonesia gratis dengan word-boundary timing (untuk subtitle akurat)
+- **FontTools** — Pembaca nama family file font standar (TTF/OTF/TTC)
 - **Security** — PyJWT for Token Auth & bcrypt for Hash checking
 - **Python-dotenv** — Environment configuration
 
@@ -67,7 +70,7 @@ affiliate-video-maker/
 ├── backend/
 │   ├── .env                     ← GITIGNORED — Holds JWT Secret & Password Hash
 │   ├── .env.example
-│   ├── main.py                  ← FastAPI app, Auth, Render & Subtitle pipeline
+│   ├── main.py                  ← FastAPI app, Auth, Render, Subtitle & Font
 │   ├── mcp_server.py            ← MCP tools (generate_ai_voice & merge_video_and_voice)
 │   ├── generate_hash.py         ← Script to generate bcrypt password hash
 │   ├── requirements.txt
@@ -76,11 +79,13 @@ affiliate-video-maker/
 │   ├── logs/
 │   │   ├── hook_logs.csv        ← CSV database for generated hooks
 │   │   ├── login_logs.csv       ← CSV database for authentication attempts
-│   │   └── video_library.json   ← Metadata Video Library
+│   │   ├── video_library.json   ← Metadata Video Library
+│   │   └── fonts.json           ← Metadata Custom Font
 │   ├── static/
 │   │   ├── videos/              ← Hasil render (retensi 7 hari, auto-delete)
 │   │   ├── audios/              ← Voiceover MP3 (retensi 7 hari)
-│   │   ├── subs/                ← File subtitle .srt hasil generate (retensi 7 hari)
+│   │   ├── subs/                ← File subtitle .srt/.ass hasil generate (retensi 7 hari)
+│   │   ├── fonts/               ← Custom font upload TTF/OTF/TTC (sampai dihapus manual)
 │   │   └── library/             ← Video raw library (retensi 30 hari)
 │   └── temp_processing/         ← Auto-created runtime temp folder
 └── frontend/
@@ -97,7 +102,7 @@ affiliate-video-maker/
         │   └── index.js         ← Route definitions & Auth guards
         └── components/
             ├── Login.vue        ← 8-bit retro login page
-            ├── VideoEditor.vue  ← Main UI component (Editor + Subtitle toggle)
+            ├── VideoEditor.vue  ← Main UI (Editor + Subtitle toggle/style/font)
             ├── VideoLibrary.vue ← Video Library component
             └── LogViewer.vue    ← Logs, Analytics & Security Logs
 ```
@@ -158,10 +163,10 @@ Open **http://localhost:5173** in your browser.
 cd affiliate-video-maker/backend
 
 # Unit test pipeline subtitle burn-in (offline, butuh FFmpeg)
-../.venv/bin/python test_subtitles.py     # atau: python test_subtitles.py
+python test_subtitles.py
 
-# E2E offline job pipeline + toggle subtitle (TTS di-stub, FFmpeg asli)
-../.venv/bin/python test_api_e2e.py
+# E2E offline job pipeline + custom font/style (TTS di-stub, FFmpeg asli)
+python test_api_e2e.py
 ```
 
 ---
@@ -222,8 +227,9 @@ Baca panduan lengkapnya di 👉 **[DOCKER_INSTRUCTIONS.md](./DOCKER_INSTRUCTIONS
 |---|---|---|
 | Video hasil render | `backend/static/videos/` | **7 hari** |
 | Audio voiceover | `backend/static/audios/` | **7 hari** |
-| Subtitle `.srt` | `backend/static/subs/` | **7 hari** |
+| Subtitle `.srt` / `.ass` | `backend/static/subs/` | **7 hari** |
 | Video Library | `backend/static/library/` | **30 hari** (env `VIDEO_LIBRARY_RETENTION_DAYS`) |
+| Custom Font | `backend/static/fonts/` | **Selamanya** (sampai dihapus manual) |
 
 Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. Entri log yang file medianya sudah dihapus akan menampilkan placeholder `-` di UI.
 
@@ -248,9 +254,12 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `GET` | `/api/library` | ✅ | Daftar video library |
 | `POST` | `/api/library/upload` | ✅ | Upload video ke library |
 | `DELETE` | `/api/library/{video_id}` | ✅ | Hapus video library |
+| `GET` | `/api/fonts` | ✅ | Daftar custom font (subtitle) |
+| `POST` | `/api/fonts/upload` | ✅ | Upload custom font (.ttf/.otf/.ttc, maks 5 MB) |
+| `DELETE` | `/api/fonts/{font_id}` | ✅ | Hapus custom font |
 | `GET` | `/api/videos/{file}` | — | Static: hasil render |
 | `GET` | `/api/audios/{file}` | — | Static: voiceover |
-| `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt` |
+| `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt`/`.ass` |
 | `GET` | `/api/lib-static/{file}` | — | Static: video library |
 
 \* Stream SSE tidak mengirim header `Authorization` (keterbatasan `EventSource`) — cukup aman karena `job_id` berupa UUID acak.
@@ -267,13 +276,41 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS) or `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations) |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
 | `force_portrait` | string | ❌ | `true` | Crop video ke 9:16 |
-| `burn_subtitles` | string | ❌ | `false` | `true` / `false` — burn caption auto-subtitle (gaya TikTok) ke video; file `.srt` disimpan di `static/subs/` |
+| `burn_subtitles` | string | ❌ | `false` | `true` / `false` — burn caption auto-subtitle ke video |
+| `subtitle_font_id` | string | ❌ | *(bawaan)* | ID custom font dari `POST /api/fonts/upload`; kosongkan = DejaVu Sans |
+| `subtitle_size` | string | ❌ | `md` | `sm` / `md` / `lg` |
+| `subtitle_color` | string | ❌ | `white` | `white` `yellow` `cyan` `magenta` `green` `red` `blue` `orange` `black` |
+| `subtitle_outline_color` | string | ❌ | `black` | Warna outline (sama seperti di atas) + `none` |
+| `subtitle_outline` | string | ❌ | `md` | `thin` / `md` / `thick` |
+| `subtitle_position` | string | ❌ | `center` | `top` / `center` / `bottom` |
+| `subtitle_caps` | string | ❌ | `false` | `true` = caption HURUF KAPITAL semua |
 | `library_video_id` | string | ❌ | — | *(jobs/submit saja)* Pakai video dari Library, tanpa upload |
 
 \* `video` wajib diisi **kecuali** `library_video_id` dipakai (jobs/submit).
 
 **Response:** `{ "status": "success", "video_url": "/api/videos/{id}.mp4", "subtitle_url": "/api/subs/{id}.srt", "log_id": ... }`
-(`subtitle_url` hanya ada bila `burn_subtitles=true`.)
+
+---
+
+## 🔥 Auto Subtitle Burn-in & Custom Style
+
+Caption bisa di-burn permanen ke video — **pilihan AKTIF / NONAKTIF** di Step 2 Editor.
+Saat AKTIF, panel **🎨 Gaya Caption** terbuka untuk kustomisasi penuh.
+
+| Aspek | Opsi |
+|---|---|
+| **Font** | DejaVu Sans (bawaan) atau **custom font** hasil upload **`.ttf` / `.otf` / `.ttc`** (maks 5 MB) — nama family dibaca otomatis dari file; dimuat via `fontsdir` FFmpeg, **tanpa instalasi ke sistem**. `.woff/.woff2` (web font) tidak didukung. |
+| **Ukuran** | Kecil (4%) / Sedang (5.2%) / Besar (7%) dari tinggi video |
+| **Warna teks** | Putih, Kuning, Cyan, Magenta, Hijau, Merah, Biru, Oranye, Hitam |
+| **Outline** | Warna (Hitam/Putih/Tanpa) + tebal (Tipis/Sedang/Tebal) |
+| **Posisi** | Atas / Tengah (TikTok) / Bawah |
+| **Kapital** | Semua huruf besar (gaya caption TikTok) |
+| **Timing** | Word-boundary Edge-TTS (akurat per kata) · fallback proporsional untuk GPT-Audio |
+| **Resolusi** | Ukuran font/outline/posisi proporsional terhadap dimensi output render |
+| **File** | `.srt` (unduh dari Logs) + `.ass` (sidecar ber-style) di `static/subs/` |
+
+> Catatan: file `.srt` standar tidak menyimpan gaya (hanya teks + timing) — gaya penuh
+> tersimpan di sidecar `.ass`. Burn-in selalu mengikuti gaya yang dipilih saat render.
 
 ---
 
@@ -319,20 +356,6 @@ The frontend includes a built-in hook script generator. Just type a **product na
 - 🚀 **V2: Edukasi** — Insight gratis, bukan terasa diiklani
 - 🚀 **V2: Pro-Kontra** — Contra opinion yang bikin berhenti scroll
 - 🚀 **V2: Visual Shock** — Reaksi spontan menyaksikan sesuatu
-
----
-
-## 🔥 Auto Subtitle Burn-in
-
-Caption gaya TikTok di-burn permanen ke video — **pilihan AKTIF / NONAKTIF** di Step 2 Editor.
-
-| Aspek | Detail |
-|---|---|
-| **Gaya** | Putih tebal + outline hitam, blok 1–2 baris, di tengah layar (sedikit di atas tengah) |
-| **Timing** | Word-boundary Edge-TTS (akurat per kata) · fallback proporsional panjang teks untuk GPT-Audio |
-| **Resolusi** | Font/outline dihitung proporsional dari dimensi output render |
-| **File SRT** | Disimpan di `static/subs/{id}.srt`, bisa diunduh dari tombol **SRT** di halaman Logs |
-| **Syarat** | Build FFmpeg dengan libass (filter `ass`/`subtitles`) |
 
 ---
 

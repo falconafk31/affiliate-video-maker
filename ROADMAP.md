@@ -1,91 +1,60 @@
-# Roadmap
+# 🗺️ ROADMAP — Affiliate Video Maker
 
-Rencana pengembangan **Affiliate Video Maker**. Prioritas diambil dari
-[LAPORAN_ANALISIS.md](./LAPORAN_ANALISIS.md) + lanjutan fitur subtitle.
-Status terkini lihat [CHANGELOG.md](./CHANGELOG.md).
+Rencana pengembangan dan peningkatan proyek. Status setiap butir akan diperbarui seiring pengerjaan.
 
-> ✅ = selesai · 🚧 = berikutnya (next up) · 🗓️ = terencana · 💡 = eksplorasi
+- 🟢 **Done** — sudah selesai & ter-commit
+- 🟡 **In Progress** — sedang dikerjakan
+- 🔴 **TODO** — siap dikerjakan (high priority)
+- 🔵 **Backlog** — butuh riset / prioritas lebih rendah
 
----
-
-## ✅ Selesai — v0.2.0 (2026-09-22)
-
-- ✅ **Auto Subtitle Burn-in** dengan pilihan **AKTIF / NONAKTIF** (gaya TikTok, timing
-  word-boundary Edge-TTS, SRT bisa diunduh dari Logs)
-- ✅ Video hasil render selalu terpersist (skrip manual tanpa `log_id` tidak lagi hilang)
-- ✅ Crop 9:16 dimensi genap (aman semua rasio input) + validasi `jobs/submit` (400, bukan crash)
-- ✅ Frontend API relatif `/api` + dev-proxy Vite (dev lokal tanpa set env)
-- ✅ Perbaikan proxy Nginx Docker (port + header SSE) + font DejaVu di image backend
-- ✅ Test offline: `test_subtitles.py` (28 assertions) + `test_api_e2e.py` (13 assertions)
+Versi rilis dan isinya terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).
 
 ---
 
-## 🚧 Next Up — perbaikan cepat (quick wins)
+## ✅ Selesai (riwayat singkat)
 
-Keamanan & kebenaran perilaku (prioritas tinggi — lihat §3–4 laporan analisis):
-
-- 🚧 **Hapus `api_key_prefix`** dari `/health` & `/api/debug`, beri auth pada `/api/debug` (S1)
-- 🚧 **Fail-fast `JWT_SECRET`** — jangan fallback `"default_secret_if_not_set"` (S3)
-- 🚧 **Perbaiki exp JWT** (`datetime.now(timezone.utc)`) — salah hitung di server non-UTC (B7)
-- 🚧 **Perilaku `trim_audio`** — `-t durasi_video`, jangan `-shortest` (video tak ikut terpotong
-  saat audio lebih pendek) (B2)
-- 🚧 **Single worker / shared state** — `--workers 2` vs `jobs` & `LOGIN_ATTEMPTS` in-memory
-  memecah SSE & lockout antar-proses (B3)
-- 🚧 **Tombol Logout** + redirect ke tujuan awal setelah login (U1, U15)
-- 🚧 **Refresh data via `onActivated`** di Logs/Library (keep-alive membuat data basi) (B9)
-- 🚧 **Konfirmasi sebelum regenerate hook** bila skrip sudah diedit user (B13)
-- 🚧 **Parsing error axios JSON** (`.detail`) — pesan error server sering tidak tampil (B10)
-- 🚧 **Konsistensi terima file** `.mp4/.mov/.avi` antara Editor, Library & backend (B11)
-- 🚧 **CORS whitelist origin** (ganti `allow_origins=["*"]`) + pertimbangkan auth untuk
-  media statis / signed URL (S2, S4)
-- 🚧 **`beforeunload` guard** saat render berjalan + recovery `job_id` via `sessionStorage`
-  setelah refresh (U4, U5)
+- 🟢 **v0.1.x** — Hook Generator (Pollinations), Dual AI Voiceover (Edge-TTS + GPT-Audio), render FFmpeg native, job system async + SSE, Video Library, Video Editor 2 langkah, Log Viewer + Security Logs, Auth single-admin (bcrypt + JWT + anti-bruteforce), Docker Compose, MCP Server, retention media (7 & 30 hari).
+- 🟢 **v0.2.0** — **Auto Subtitle Burn-in (AKTIF/NONAKTIF)**: caption gaya TikTok, timing word-boundary Edge-TTS (fallback proporsional), file `.srt` bisa diunduh, preset gaya caption, `backend/requirements.txt` sudah benar (`requirements.txt` bukan `requirement.txt`), seed `hook_logs.csv` agar `/api/logs` aman untuk user baru, perbaikan pipeline & pengembangan lokal (lihat CHANGELOG 0.2.0).
+- 🟢 **v0.3.0** — **Custom Subtitle Style** (ukuran/warna/outline/posisi/kapital) + **Custom Font Import** (`.ttf/.otf/.ttc`, family auto-detect, `fontsdir` tanpa instalasi sistem) + balanced line wrap + sidecar `.ass` + test font (E2E/unit) + dokumentasi lengkap.
 
 ---
 
-## 🗓️ Terencana — jangka menengah
+## 🎯 0.3.x — Penyempurnaan Subtitle & UX
 
-- 🗓️ **SQLite untuk `hook_logs` & `login_logs`** (ganti CSV — query terindex, tanpa rewrite
-  file penuh) + paginasi server-side `/api/logs`
-- 🗓️ **Job queue dengan batas konkurensi** (semaphore 1–2 render FFmpeg serentak) + indikator
-  "antrian" di UI
-- 🗓️ **`-movflags +faststart`** & **skip re-encode** (`-c:v copy`) bila video sudah 9:16
-- 🗓️ **Refactor `main.py`** → `routers/` + `services/` (tts, ffmpeg, pollinations) + `prompts.py`;
-  hapus kode mati (`process_video` legacy bila sudah tergantikan jobs, konstanta tak terpakai)
-- 🗓️ **CI** (ruff + pytest + `vite build`) & unit test endpoint auth/logs/library
-- 🗓️ **Opsi gaya subtitle** — posisi (tengah/atas/bawah), warna preset, ukuran font, mode
-  "1 baris besar" vs "2 baris"
-- 🗓️ **Preview voice** — dengarkan sampel 1 kalimat sebelum render pilih voice model (U8)
-- 🗓️ **Peringatan panjang skrip** vs aturan 500 karakter / ±40 detik di Script Editor (U9)
-- 🗓️ **Aksesibilitas** — focus ring keyboard, drop-zone bisa di-tab, focus trap + ESC di modal,
-  kontras teks kecil (U10)
-- 🗓️ **Nama file download bermakna** `{produk}_{platform}_{tanggal}.mp4` (U7)
-- 🗓️ **Pembersihan terjadwal** (`clean_old_videos` periodik, bukan hanya saat ada job) + rotasi
-  `login_logs.csv` & log aplikasi
+- 🔴 **Perbanyak style preset caption** — simpan kombinasi style favorit (mis. "TikTok Kuning", "Clean White") dan pakai ulang dalam sekali klik.
+- 🔴 **Preview style real-time** — pratinjau caption dengan frame video saat mengubah style di panel Gaya Caption (sekarang hanya mengubah hasil render akhir).
+- 🔴 **Upload logo/watermark PNG** — drag & drop logo ke video (posisi & opacity), refresh otomatis berkas asset.
+- 🔴 **Auto CTA popup** — generik placeholder harga/toko (mis. "Rp59rb · Keranjang Kuning") otomatis muncul di 3 detik terakhir.
+- 🔴 **Kustomisasi gaya CTA & watermark** — warna, ukuran, posisi, durasi tampil.
+- 🔴 **Multi-Cta / Text Animation** — beberapa teks pop-up berurutan.
+- 🔴 **Auto Thumbnail Cover** — ambil frame terbaik + overlay teks hook untuk sampul video.
+- 🔴 **Auto Virtual Avatar / Raw Story** — mode video baru: avatar AI / video cerita dengan TTS.
+- 🔴 **Multi-Format Export** — pilihan output: 9:16 / 1:1 / 16:9, kualitas HD / hemat (bitrate & scale).
+- 🔴 **Hapus semua media (audio/video) di logs** — tombol bersih-bersih massal.
+- 🔴 **Auto Add Music** — soundtrack latar otomatis dengan ducking volume terhadap suara.
 
----
+## 🔒 0.4.x — Keamanan & UX (lihat LAPORAN_ANALISIS.md)
 
-## 💡 Eksplorasi — fitur produk (jangka panjang)
+- 🔴 Aktifkan `--reload` opsional via env; ganti `loguru` → `logging` (hilangkan 1 dependensi).
+- 🔴 Enkripsi/HTTP-only cookie untuk JWT + proteksi CORS yang benar (saat ini `allow_origins=["*"]`).
+- 🔴 Rate-limit endpoint publik (`/api/generate-hook`, `/api/login`, `/api/health`).
+- 🔴 Snapshot test foto snapshot foto frontend.
 
-Urut berdasarkan nilai untuk affiliate marketer harian:
+## 🧪 0.5.x — Testing & Observability
 
-1. 💡 **Batch generate** — 1 produk → semua variasi hook sekaligus, pilih yang terbaik → render
-2. 💡 **Caption highlight per kata (karaoke)** — subtitle berubah warna mengikuti timing
-   word-boundary (infrastruktur timing sudah ada di v0.2.0)
-3. 💡 **BGM + auto-ducking** — musik latar dari library bebas-royalti (FFmpeg
-   `sidechaincompress`), slider volume
-4. 💡 **Generate caption posting + hashtag** — draft caption TikTok/Shopee bersamaan video
-5. 💡 **Thumbnail otomatis** + play inline di Logs (ganti `<video>` per kartu Library)
-6. 💡 **Template/preset produk** — simpan kombinasi voice + mode + variasi hook favorit
-7. 💡 **Watermark / CTA sticker** — teks "Cek keranjang kuning!" dengan timing sederhana
-8. 💡 **A/B compare view** — 2 hasil generate berdampingan sebelum render
-9. 💡 **Multi-user sederhana / share link view-only** untuk review klien
-10. 💡 **Redis** untuk job state (multi-instance) + monitoring (health: FFmpeg, disk free)
+- 🔴 Cypress E2E login & video processing di CI.
+- 🔴 Konversi test manual → pytest + marker `ffmpeg`/`e2e`.
+- 🔴 Log terstruktur (JSON) untuk observabilitas di VPS.
+
+## 🔵 Backlog — Riset / Butuh Sumber Daya Eksternal
+
+- 🔵 **Dubbing / translate bahasa asing** — sumber suara & video dari luar (butuh API & biaya).
+- 🔵 **Auto Publish / Scheduler** — jadwal upload TikTok & Shopee Video (kredensial & API pihak ketiga).
+- 🔵 **Stok video otomatis** — ambil klip dari stok (Pexels/Pixabay API) saat user tidak punya raw video.
+- 🔵 **AI Avatar bawaan** — karakter virtual generatif (butuh model/API berbayar).
+- 🔵 **Engagement Hot Score** — analitik prediktif performa video (butuh dataset).
+- 🔵 **Text-to-Video penuh** — pipeline video 100% dari teks (riset model lokal/berbayar).
 
 ---
 
-## Cara berkontribusi
-
-1. Pilih item **Next Up** (dampak paling besar, scope kecil).
-2. Tambah test untuk setiap perbaikan (`test_subtitles.py` / `test_api_e2e.py` sebagai pola).
-3. Catat hasilnya di [CHANGELOG.md](./CHANGELOG.md) bagian `[Unreleased]`.
+*Dokumen ini hidup — silakan usulkan perubahan prioritas lewat issue/diskusi.*
