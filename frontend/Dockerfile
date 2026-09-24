@@ -13,7 +13,7 @@ RUN npm ci
 COPY . .
 # We can provide a build-time arg if VITE_API_BASE_URL is needed during build
 # ARGs are consumed by Vite during build
-ARG VITE_API_BASE_URL=/api
+ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build

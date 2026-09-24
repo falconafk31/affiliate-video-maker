@@ -46,7 +46,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:9000`
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 const router = useRouter()
 
 const password = ref('')

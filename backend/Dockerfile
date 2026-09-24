@@ -2,10 +2,11 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies including FFmpeg
+# Install system dependencies including FFmpeg + font untuk subtitle burn-in
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
+    fonts-dejavu-core \
     libsm6 \
     libxext6 \
     && rm -rf /var/lib/apt/lists/*
@@ -25,4 +26,4 @@ RUN mkdir -p temp_processing
 EXPOSE 9000
 
 # Start Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000", "--workers", "2"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000", "--workers", "1"]

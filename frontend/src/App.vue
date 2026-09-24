@@ -18,24 +18,31 @@
           <router-link
             to="/"
             active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
-            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            class="px-1.5 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-xs sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
             [ Editor ]
           </router-link>
           <router-link
             to="/library"
             active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
-            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            class="px-1.5 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-xs sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
             [ Library ]
           </router-link>
           <router-link
             to="/logs"
             active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
-            class="px-2 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-base sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            class="px-1.5 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-xs sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
             [ Logs ]
+          </router-link>
+          <router-link
+            to="/setting"
+            active-class="bg-retro-cyan !text-black shadow-[2px_2px_0_0_#FF00FF]"
+            class="px-1.5 py-1 sm:px-4 sm:py-2 border-2 border-retro-cyan font-retro text-xs sm:text-lg uppercase transition-all text-retro-cyan hover:bg-retro-cyan hover:text-black">
+            [ Setting ]
           </router-link>
         </nav>
       </div>
     </header>
+    <Toaster />
 
     <main class="max-w-6xl mx-auto px-4 py-10 text-slate-100">
       <router-view v-slot="{ Component }">

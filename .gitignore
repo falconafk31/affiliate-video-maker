@@ -37,11 +37,31 @@ Thumbs.db
 *.log
 logs/
 
-# Generated Media (managed by backend)
-backend/static/videos/*.mp4
-backend/static/audios/*.mp3
-backend/*.mp3
+# Generated media, subtitles, thumbnails, and uploaded fonts
+backend/static/**
+!backend/static/.gitkeep
 backend/temp_processing/
+backend/*.mp3
+backend/*.mp4
+backend/*.wav
+backend/*.m4a
+backend/*.aac
+backend/*.ogg
+backend/*.flac
+backend/*.avi
+backend/*.mov
+backend/*.mkv
+backend/*.webm
+backend/*.srt
+backend/*.ass
+
+# Runtime logs and local databases
 backend/logs/*
 !backend/logs/.gitkeep
+backend/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 .env
+backend/static/library/*

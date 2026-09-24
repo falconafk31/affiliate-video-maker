@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import Toaster from './components/Toaster.vue'
 import router from './router'
 import './style.css'
 import axios from 'axios'
@@ -25,5 +26,6 @@ axios.interceptors.response.use(
 )
 
 const app = createApp(App)
+app.component('Toaster', Toaster)
 app.use(router)
 app.mount('#app')

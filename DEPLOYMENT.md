@@ -109,7 +109,7 @@ Edit `ecosystem.config.js` di root project — sesuaikan path Python virtualenv:
 
 ```javascript
 // Ubah args backend agar pakai venv
-args: "-m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2",
+args: "-m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1",
 // Tambahkan interpreter path virtualenv:
 interpreter: "/var/www/affiliate-video-maker/backend/venv/bin/python",
 ```

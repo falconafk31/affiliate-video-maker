@@ -46,7 +46,7 @@
             id="hook-tiktok"
             class="hook-tab"
             :class="hookType === 'tiktok' ? 'hook-tab-active' : 'hook-tab-inactive'"
-            @click="hookType = 'tiktok'"
+            @click="setHookType('tiktok')"
           >
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.16 8.16 0 004.77 1.52V6.76a4.85 4.85 0 01-1-.07z"/>
@@ -60,7 +60,7 @@
             id="hook-shopee"
             class="hook-tab"
             :class="hookType === 'shopee' ? 'hook-tab-active' : 'hook-tab-inactive'"
-            @click="hookType = 'shopee'"
+            @click="setHookType('shopee')"
           >
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
@@ -73,29 +73,78 @@
 
       <!-- Hook variation selector -->
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-2">Variasi Hook</label>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="flex items-end justify-between gap-3 mb-2">
+          <label class="block text-sm font-medium text-slate-300">Variasi Hook V3</label>
+          <span class="text-[11px] text-slate-500">{{ selectedHookVariation?.profileLabel }} · {{ selectedHookVariation?.duration }}</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           <button
-            v-for="(v, i) in hookVariations[hookType]"
-            :key="i"
+            v-for="v in hookVariations[hookType]"
+            :key="v.key"
             type="button"
-            class="text-xs py-2 px-3 rounded-none border transition-all duration-150 text-left"
-            :class="selectedVariation === i
+            class="text-xs py-2.5 px-3 rounded-none border transition-all duration-150 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+            :class="selectedVariation === v.key
               ? 'border-brand-500 bg-brand-900/40 text-brand-300'
               : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
-            @click="selectedVariation = i"
+            :title="`${v.description} Target ${v.duration}.`"
+            :aria-pressed="selectedVariation === v.key"
+            @click="selectedVariation = v.key"
           >
-            {{ v.label }}
+            <span class="block font-semibold">{{ v.label }}</span>
+            <span class="block mt-1 text-[10px] leading-relaxed text-slate-500">{{ v.description }}</span>
           </button>
         </div>
       </div>
 
+      <!-- V3 grounding context: facts prevent fabricated claims -->
+      <details class="border border-slate-700 bg-slate-900/40 rounded-none">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-slate-300 hover:text-retro-cyan">
+          🎯 Fakta, Audiens &amp; Konteks (opsional)
+        </summary>
+        <div class="space-y-4 border-t border-slate-700 p-4">
+          <div>
+            <label for="product-facts" class="block text-xs font-medium text-slate-300 mb-1">Fakta produk / promo terverifikasi</label>
+            <textarea id="product-facts" v-model="productFacts" rows="3" maxlength="2500" class="input-retro"
+              placeholder="Contoh: Bahan aluminium, garansi satu tahun, voucher dua puluh persen berlaku sampai tanggal tertentu."></textarea>
+            <p class="mt-1 text-[11px] text-slate-500">Hanya fakta ini boleh dipakai AI. Angka yang tidak tersedia tidak akan dikarang.</p>
+          </div>
+          <div>
+            <label for="target-audience" class="block text-xs font-medium text-slate-300 mb-1">Audiens target</label>
+            <input id="target-audience" v-model="targetAudience" type="text" maxlength="500" class="input-retro"
+              placeholder="Contoh: ibu yang bekerja dari rumah, pemain pemula, atau pembaca." />
+          </div>
+          <div v-if="['story', 'review', 'v2_personal'].includes(selectedVariation)">
+            <label for="experience-notes" class="block text-xs font-medium text-slate-300 mb-1">Pengalaman nyata (wajib untuk tone personal)</label>
+            <textarea id="experience-notes" v-model="experienceNotes" rows="3" maxlength="2000" class="input-retro"
+              placeholder="Ceritakan penggunaan nyata; jangan berisi klaim yang belum diuji."></textarea>
+          </div>
+          <div v-if="selectedVariation === 'v2_visual'">
+            <label for="visual-context" class="block text-xs font-medium text-slate-300 mb-1">Visual frame / aksi video <span class="text-retro-cyan">*</span></label>
+            <textarea id="visual-context" v-model="visualContext" rows="3" maxlength="1500" class="input-retro"
+              placeholder="Contoh: Tangan membuka tutup kipas, lalu udara bergerak di dekat kepala."></textarea>
+            <p class="mt-1 text-[11px] text-amber-400">Wajib diisi agar voiceover cocok dengan footage.</p>
+          </div>
+          <div>
+            <label for="cta-preference" class="block text-xs font-medium text-slate-300 mb-1">Preferensi CTA (opsional)</label>
+            <input id="cta-preference" v-model="ctaPreference" type="text" maxlength="300" class="input-retro"
+              placeholder="Contoh: Cek keranjang kuning, lalu lihat detail produk." />
+          </div>
+        </div>
+      </details>
+
       <!-- Generate button -->
+      <div class="flex items-center justify-between text-xs text-slate-500">
+        <span>Model teks: <span class="text-slate-300">{{ activeTextLabel }}</span></span>
+        <router-link to="/setting"
+                class="underline underline-offset-2 hover:text-brand-300 transition-colors">
+          ⚙️ Ganti model
+        </router-link>
+      </div>
       <button
         type="button"
         id="generate-hook-btn"
         class="btn-retro w-full"
-        :disabled="!productName.trim() || isGenerating"
+        :disabled="!hookCanGenerate || isGenerating"
         @click="generateHook"
       >
         <svg v-if="isGenerating" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -115,8 +164,17 @@
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
           </svg>
-          Hook AI berhasil digenerate! Silakan cek & edit di Step 2.
+          Hook V3 berhasil digenerate! Silakan cek & edit di Step 2.
         </div>
+         <div v-if="hookMetadata" class="text-[11px] text-green-300/80">
+           {{ hookMetadata.word_count }} kata · ±{{ hookMetadata.estimated_duration }} detik
+           <span v-if="hookMetadata.repair_count > 0">· {{ hookMetadata.repair_count }} repair</span>
+         <div v-if="hookMetadata?.warnings?.length" class="text-[11px] text-amber-300/90">
+           ⚠ {{ hookMetadata.warnings.join(' · ') }}
+         </div>
+
+         </div>
+
         <button
           type="button"
           class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-slate-100 text-[11px] font-bold rounded-none transition-colors shadow-lg shadow-green-900/20"
@@ -167,6 +225,12 @@
             Hanya Audio (MP3)
           </button>
         </div>
+      </div>
+
+      <!-- Badge model AI aktif (C3) -->
+      <div class="flex flex-wrap gap-2 text-[11px] -mt-2">
+        <span class="px-2 py-1 border border-slate-700 text-slate-400">🧠 Teks: <b class="text-slate-200">{{ activeTextLabel }}</b></span>
+        <span class="px-2 py-1 border border-slate-700 text-slate-400">🎙️ Suara: <b class="text-slate-200">{{ voiceModelLabel }}</b></span>
       </div>
 
       <!-- Drag & Drop Video Upload — Only if mode is 'video' -->
@@ -294,10 +358,182 @@
 
       <!-- Voice Model -->
       <div>
-        <label for="voice-model" class="block text-sm font-medium text-slate-300 mb-2">Voice Model</label>
+        <div class="flex items-center justify-between mb-2">
+          <label for="voice-model" class="block text-sm font-medium text-slate-300">Voice Model</label>
+          <router-link to="/setting"
+                  class="text-xs text-slate-400 hover:text-brand-300 underline underline-offset-2 transition-colors">
+            ⚙️ Kelola AI Model
+          </router-link>
+        </div>
         <select id="voice-model" v-model="voiceModel" class="input-retro">
           <option v-for="v in voiceOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
         </select>
+        <div class="flex items-center gap-2 mt-2">
+          <button type="button" @click="previewVoice" :disabled="previewBusy"
+                  class="px-3 py-1.5 border-2 border-retro-cyan text-retro-cyan text-xs hover:bg-retro-cyan hover:text-black transition-all disabled:opacity-50">
+            {{ previewBusy ? '⏳ Membuat…' : '🔊 Contoh Suara' }}
+          </button>
+          <span v-if="previewErr" class="text-[11px] text-red-400">{{ previewErr }}</span>
+        </div>
+        <audio v-if="previewUrl" id="voice-preview-audio" :src="previewUrl" controls class="w-full mt-2"></audio>
+        <p v-if="voiceModel.startsWith('custom:')" class="text-[11px] text-slate-500 mt-1">
+          Model suara custom (OpenAI-compatible) — timing subtitle proporsional.
+        </p>
+      </div>
+
+      <!-- Auto Subtitle Burn-in (hanya mode video) -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          Auto Subtitle Burn-in
+          <span class="ml-2 text-xs text-slate-500">Opsional — dari skrip</span>
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            id="subtitle-on-btn"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="burnSubtitles
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="burnSubtitles = true"
+          >
+            <span class="text-lg">🔥</span>
+            <span class="text-xs font-semibold leading-tight">AKTIF</span>
+            <span class="text-xs opacity-60 leading-tight">Teks di tengah video</span>
+          </button>
+          <button
+            type="button"
+            id="subtitle-off-btn"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="!burnSubtitles
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="burnSubtitles = false"
+          >
+            <span class="text-lg">⚫</span>
+            <span class="text-xs font-semibold leading-tight">NONAKTIF</span>
+            <span class="text-xs opacity-60 leading-tight">Video polos tanpa teks</span>
+          </button>
+        </div>
+        <p v-if="burnSubtitles" class="text-[11px] text-slate-500">
+          Caption otomatis dari skrip di-burn permanen ke video (gaya TikTok: putih tebal,
+          outline hitam, di tengah layar). Timing mengikuti voiceover — paling akurat dengan
+          voice Edge-TTS. File .srt juga disimpan dan bisa diunduh dari halaman Logs.
+        </p>
+      </div>
+
+      <!-- 🎨 Custom Subtitle Style (hanya saat Auto Subtitle AKTIF) -->
+      <div v-if="mode === 'video' && burnSubtitles" class="space-y-3 p-3 border-2 border-dashed border-slate-700 bg-slate-900/40 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300">
+          🎨 Gaya Caption
+          <span class="ml-2 text-xs text-slate-500">Burn-in permanen</span>
+        </label>
+
+        <!-- Ukuran & posisi -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Ukuran</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="s in ['sm','md','lg']" :key="s" type="button"
+                      @click="subtitleStyle.size = s"
+                      :class="subtitleStyle.size === s ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ s === 'sm' ? 'Kecil' : s === 'md' ? 'Sedang' : 'Besar' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Posisi</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="p in ['top','center','bottom']" :key="p" type="button"
+                      @click="subtitleStyle.position = p"
+                      :class="subtitleStyle.position === p ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ p === 'top' ? 'Atas' : p === 'center' ? 'Tengah' : 'Bawah' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Warna teks -->
+        <div>
+          <span class="block text-xs text-slate-400 mb-1">Warna Teks</span>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="(hex, cname) in SUBTITLE_COLORS" :key="cname" type="button"
+                    @click="subtitleStyle.color = cname" :title="cname"
+                    :class="subtitleStyle.color === cname ? 'border-brand-400 scale-110' : 'border-slate-700 hover:border-slate-500'"
+                    class="w-7 h-7 border-2 transition-all" :style="{ backgroundColor: hex }"></button>
+          </div>
+        </div>
+
+        <!-- Outline -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Tebal Outline</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="o in ['thin','md','thick']" :key="o" type="button"
+                      @click="subtitleStyle.outline = o"
+                      :class="subtitleStyle.outline === o ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ o === 'thin' ? 'Tipis' : o === 'md' ? 'Sedang' : 'Tebal' }}
+              </button>
+            </div>
+          </div>
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Warna Outline</span>
+            <div class="grid grid-cols-3 gap-1">
+              <button v-for="oc in ['black','white','none']" :key="oc" type="button"
+                      @click="subtitleStyle.outlineColor = oc"
+                      :class="subtitleStyle.outlineColor === oc ? 'border-brand-500 bg-brand-900/40 text-brand-300' : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+                      class="py-1.5 border-2 text-xs transition-all">
+                {{ oc === 'black' ? 'Hitam' : oc === 'white' ? 'Putih' : 'Tanpa' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom font + kapital -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs text-slate-400 mb-1">Font (TTF / OTF / TTC — maks 5 MB)</span>
+            <select v-model="subtitleStyle.fontId" class="input-retro text-xs">
+              <option value="">DejaVu Sans (bawaan)</option>
+              <option v-for="f in subtitleFonts" :key="f.id" :value="f.id">{{ f.display_name }} — {{ f.family }}</option>
+            </select>
+            <div class="flex gap-1 mt-1">
+              <label class="flex-1 cursor-pointer border-2 border-dashed border-slate-700 hover:border-brand-500 text-slate-400 text-xs py-1.5 text-center transition-all">
+                📂 Impor Font…
+                <input type="file" accept=".ttf,.otf,.ttc" class="hidden" @change="onFontFileChange" />
+              </label>
+              <button v-if="subtitleStyle.fontId" type="button" @click="deleteSubtitleFont(subtitleStyle.fontId)"
+                      class="px-2 border-2 border-red-800 text-red-400 hover:bg-red-900/40 text-xs transition-all">
+                Hapus
+              </button>
+            </div>
+            <p v-if="fontStatus" class="text-[11px] mt-1" :class="fontStatusIsError ? 'text-red-400' : 'text-emerald-400'">{{ fontStatus }}</p>
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 cursor-pointer select-none w-full border-2 border-slate-700 py-2 px-2">
+              <input type="checkbox" v-model="subtitleStyle.caps" class="accent-brand-500 w-4 h-4" />
+              <span class="text-xs text-slate-300">HURUF KAPITAL semua</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview Caption (mock burn-in) — tanpa render FFmpeg -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          👀 Preview Caption
+          <span class="ml-2 text-xs text-slate-500">Perkiraan tampilan subtitle di video</span>
+        </label>
+        <div class="mx-auto bg-slate-950 border-2 border-slate-700 relative overflow-hidden"
+             :style="{ width: '170px', height: '302px' }">
+          <div class="absolute inset-0 flex items-center justify-center text-[10px] text-slate-600">Area Video</div>
+          <div class="absolute left-2 right-2" :style="captionPreviewStyle">
+            <span :style="captionPreviewTextStyle">CONTOH TEKS SUBTITLE</span>
+          </div>
+        </div>
       </div>
 
       <!-- Duration Match Mode -->
@@ -320,6 +556,47 @@
             <span class="text-lg">{{ m.icon }}</span>
             <span class="text-xs font-semibold leading-tight">{{ m.label }}</span>
             <span class="text-xs opacity-60 leading-tight">{{ m.desc }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Rasio Output & Kualitas (mode video) -->
+      <div v-if="mode === 'video'" class="space-y-2 animate-fade-in">
+        <label class="block text-sm font-medium text-slate-300 mb-2">
+          Rasio Output
+          <span class="ml-2 text-xs text-slate-500">Bentuk hasil video</span>
+        </label>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            v-for="r in ratioOptions" :key="r.value"
+            type="button"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="outputRatio === r.value
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="outputRatio = r.value"
+          >
+            <span class="text-lg">{{ r.icon }}</span>
+            <span class="text-xs font-semibold leading-tight">{{ r.label }}</span>
+            <span class="text-xs opacity-60 leading-tight">{{ r.desc }}</span>
+          </button>
+        </div>
+        <label class="block text-sm font-medium text-slate-300 mb-2 mt-3">
+          Kualitas Render
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            v-for="q in qualityOptions" :key="q.value"
+            type="button"
+            class="flex flex-col items-center gap-1 py-3 px-2 rounded-none border-2 transition-all duration-150 text-center"
+            :class="quality === q.value
+              ? 'border-brand-500 bg-brand-900/40 text-brand-300'
+              : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-500'"
+            @click="quality = q.value"
+          >
+            <span class="text-lg">{{ q.icon }}</span>
+            <span class="text-xs font-semibold leading-tight">{{ q.label }}</span>
+            <span class="text-xs opacity-60 leading-tight">{{ q.desc }}</span>
           </button>
         </div>
       </div>
@@ -357,7 +634,13 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <p class="text-red-300 text-sm">{{ serverError }}</p>
+        <div class="flex-1 space-y-2">
+          <p class="text-red-300 text-sm">{{ serverError }}</p>
+          <button type="button" @click="handleSubmit"
+                  class="text-xs text-retro-cyan underline hover:text-white transition-colors">
+            ↻ Coba Lagi
+          </button>
+        </div>
       </div>
     </form>
 
@@ -475,7 +758,9 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:9000`
+// Base URL API: default kosong = same-origin "/api/..." (di-proxy Vite saat dev,
+// Nginx saat production). Override dengan VITE_API_BASE_URL bila backend beda origin.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const fileInput      = ref(null)
@@ -490,7 +775,86 @@ const serverError    = ref('')
 const outputVideoUrl = ref('')
 const outputAudioUrl = ref('')
 const durationMode   = ref('auto')
+const burnSubtitles  = ref(true)   // Auto subtitle burn-in: AKTIF / NONAKTIF
 const mode           = ref('video') // 'video' | 'audio'
+
+// ── Custom Subtitle Style & Font ──────────────────────────────────────────────
+const SUBTITLE_COLORS = {
+  white:   '#ffffff',
+  yellow:  '#ffd60a',
+  cyan:    '#22d3ee',
+  magenta: '#e879f9',
+  green:   '#4ade80',
+  red:     '#f87171',
+  blue:    '#60a5fa',
+  orange:  '#fb923c',
+  black:   '#111827',
+}
+const subtitleStyle = reactive({
+  size: 'md',            // sm | md | lg
+  color: 'white',        // key SUBTITLE_COLORS
+  outline: 'md',         // thin | md | thick
+  outlineColor: 'black', // black | white | none
+  position: 'center',    // top | center | bottom
+  caps: false,
+  fontId: '',            // '' = DejaVu Sans bawaan
+})
+const subtitleFonts    = ref([])   // daftar custom font dari server
+const fontStatus       = ref('')
+const fontStatusIsError = ref(false)
+
+async function fetchSubtitleFonts() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/fonts`)
+    subtitleFonts.value = res.data.fonts || []
+  } catch { /* biarkan kosong bila gagal */ }
+}
+
+function flashFontStatus(msg, isError = false) {
+  fontStatus.value = msg
+  fontStatusIsError.value = isError
+  setTimeout(() => { fontStatus.value = '' }, 5000)
+}
+
+async function onFontFileChange(e) {
+  const file = e.target?.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  const okExt = /\.(ttf|otf|ttc)$/i.test(file.name)
+  if (!okExt) {
+    flashFontStatus('Format font tidak didukung. Gunakan .ttf, .otf, atau .ttc.', true)
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    flashFontStatus('Ukuran font maksimal 5 MB.', true)
+    return
+  }
+  const fd = new FormData()
+  fd.append('font', file)
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/fonts/upload`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    await fetchSubtitleFonts()
+    subtitleStyle.fontId = res.data.font.id
+    flashFontStatus(`✅ Font "${res.data.font.family}" siap dipakai.`)
+  } catch (err) {
+    flashFontStatus(err?.response?.data?.detail || 'Gagal upload font.', true)
+  }
+}
+
+async function deleteSubtitleFont(fontId) {
+  if (!fontId) return
+  if (!confirm('Hapus font custom ini?')) return
+  try {
+    await axios.delete(`${API_BASE_URL}/api/fonts/${fontId}`)
+    subtitleStyle.fontId = ''
+    await fetchSubtitleFonts()
+    flashFontStatus('Font dihapus.')
+  } catch (err) {
+    flashFontStatus(err?.response?.data?.detail || 'Gagal menghapus font.', true)
+  }
+}
 
 const showPreview    = ref(false)
 
@@ -503,19 +867,27 @@ const showLibraryPicker  = ref(false)
 const libraryItems       = ref([])
 const libraryPickerLoading = ref(false)
 
-// Hook generator state
-const productName      = ref('')
-const hookType         = ref('tiktok')     // 'tiktok' | 'shopee'
-const selectedVariation = ref(0)
-const hookGenerated    = ref(false)
-const isGenerating     = ref(false)
-const hookError        = ref('')
+// Hook generator state — V3 uses stable variation keys, not platform indexes.
+const productName        = ref('')
+const hookType           = ref('tiktok')     // 'tiktok' | 'shopee'
+const selectedVariation  = ref('viral')
+const productFacts       = ref('')
+const targetAudience     = ref('')
+const experienceNotes    = ref('')
+const visualContext      = ref('')
+const ctaPreference      = ref('')
+const hookGenerated      = ref(false)
+const isGenerating       = ref(false)
+const hookError          = ref('')
+const hookMetadata       = ref(null)
 
 
 const errors = reactive({ video: '', prompt: '' })
 
 // Check sessionStorage for library video on mount (set by VideoLibrary.vue)
 onMounted(() => {
+  fetchSubtitleFonts()
+  fetchAiConfig()
   const stored = sessionStorage.getItem('library_video')
   if (stored) {
     try {
@@ -526,7 +898,7 @@ onMounted(() => {
 })
 
 // Clear output results when key inputs change to prevent playing stale/unsynced audio/video
-watch([prompt, voiceModel, durationMode, selectedFile, mode, libraryVideo], () => {
+watch([prompt, voiceModel, durationMode, burnSubtitles, selectedFile, mode, libraryVideo], () => {
   outputVideoUrl.value = ''
   outputAudioUrl.value = ''
   showPreview.value = false
@@ -538,6 +910,68 @@ const estimatedDuration = computed(() => {
   if (words === 0) return 0
   // Standard Indonesian narrations: ~140 words per minute
   return Math.ceil(words / 2.33)
+})
+
+// ── Output Ratio & Quality ────────────────────────────────────────────────────
+const outputRatio = ref('9:16')   // '9:16' | '1:1' | '16:9'
+const quality     = ref('hemat')  // 'hemat' (cepat) | 'hd'
+
+const qualityOptions = [
+  { value: 'hemat', icon: '⚡', label: 'Hemat & Cepat', desc: 'File kecil' },
+  { value: 'hd',    icon: '✨', label: 'HD',            desc: 'Lebih tajam' },
+]
+
+const ratioOptions = [
+  { value: '9:16', icon: '📱', label: '9:16 Vertikal', desc: 'TikTok / Reels' },
+  { value: '1:1',  icon: '⬜', label: '1:1 Kotak',     desc: 'Feed IG / FB' },
+  { value: '16:9', icon: '🖥️', label: '16:9 Lanskap',  desc: 'YouTube / Web' },
+]
+
+// ── Contoh Suara (voice preview) ──────────────────────────────────────────────
+const previewBusy = ref(false)
+const previewUrl  = ref('')
+const previewErr  = ref('')
+async function previewVoice() {
+  if (previewBusy.value) return
+  previewBusy.value = true
+  previewErr.value = ''
+  try {
+    const r = await axios.post(`${API_BASE_URL}/api/voice-preview`,
+      { voice_model: voiceModel.value }, { timeout: 30000 })
+    previewUrl.value = API_BASE_URL + r.data.audio_url
+    setTimeout(() => { document.getElementById('voice-preview-audio')?.load() }, 50)
+  } catch (e) {
+    previewErr.value = e?.response?.data?.detail || 'Gagal membuat contoh suara.'
+  } finally { previewBusy.value = false }
+}
+
+// ── Preview Caption Style (C1) ───────────────────────────────────────────────
+const SIZE_PX    = { sm: 11, md: 14, lg: 18 }
+const OUTLINE_PX = { thin: 1, md: 2, thick: 3 }
+const captionPreviewStyle = computed(() => {
+  const pos = subtitleStyle.position
+  return {
+    top: pos === 'top' ? '12%' : pos === 'center' ? '50%' : 'auto',
+    bottom: pos === 'bottom' ? '10%' : 'auto',
+    transform: pos === 'center' ? 'translateY(50%)' : 'none',
+    textAlign: 'center',
+  }
+})
+const captionPreviewTextStyle = computed(() => {
+  const size  = SIZE_PX[subtitleStyle.size] || 14
+  const ow    = OUTLINE_PX[subtitleStyle.outline] || 2
+  const color = SUBTITLE_COLORS[subtitleStyle.color] || '#ffffff'
+  const oc    = subtitleStyle.outlineColor === 'white' ? '#ffffff'
+              : subtitleStyle.outlineColor === 'none' ? 'transparent' : '#111827'
+  return {
+    fontSize: size + 'px',
+    fontWeight: '700',
+    color,
+    textTransform: subtitleStyle.caps ? 'uppercase' : 'none',
+    textShadow: subtitleStyle.outlineColor === 'none' ? 'none'
+      : `${ow}px 0 0 ${oc}, -${ow}px 0 0 ${oc}, 0 ${ow}px 0 ${oc}, 0 -${ow}px 0 ${oc}`,
+    lineHeight: '1.3',
+  }
 })
 
 // ── Duration Modes ────────────────────────────────────────────────────────────
@@ -563,63 +997,130 @@ const durationModes = [
 ]
 
 // ── Voice Options ─────────────────────────────────────────────────────────────
-const voiceOptions = [
-  { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
-  { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
-  { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
-  { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },
-  { value: 'openai-audio:onyx', label: 'GPT Audio — Laki-laki, Onyx (Pollinations)' },
-  { value: 'openai-audio:echo', label: 'GPT Audio — Laki-laki, Echo (Pollinations)' },
-  { value: 'openai-audio:fable', label: 'GPT Audio — Laki-laki, Fable (Pollinations)' },
-]
+// ── Custom AI Provider (OpenAI-compatible) — dikelola di halaman /setting ─────
+const aiConfig = reactive({ text_models: [], voice_models: [], active_text_model: '', defaults: {} })
 
-// ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
+async function fetchAiConfig() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/ai-config`)
+    aiConfig.text_models       = res.data.text_models || []
+    aiConfig.voice_models      = res.data.voice_models || []
+    aiConfig.active_text_model = res.data.active_text_model || ''
+    aiConfig.defaults          = res.data.defaults || {}
+  } catch { /* biarkan kosong bila gagal */ }
+}
+
+const activeTextLabel = computed(() => {
+  if (!aiConfig.active_text_model) return 'Pollinations (bawaan)'
+  const m = aiConfig.text_models.find(x => x.id === aiConfig.active_text_model)
+  return m ? `${m.label} (${m.model})` : 'Pollinations (bawaan)'
+})
+
+const voiceModelLabel = computed(() => {
+  if (!voiceModel.value.startsWith('custom:')) {
+    return `Edge-TTS — ${aiConfig.defaults.edge_tts_voice || 'id-ID-GadisNeural'}`
+  }
+  const id = voiceModel.value.slice('custom:'.length)
+  const m = aiConfig.voice_models.find(x => x.id === id)
+  return m ? `${m.label} (${m.model})` : 'Voice custom'
+})
+
+const voiceOptions = computed(() => {
+  const base = [
+    { value: 'id-ID-GadisNeural', label: `Edge-TTS — ${aiConfig.defaults.edge_tts_voice || 'id-ID-GadisNeural'}` },
+    { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
+    { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
+    { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },
+    { value: 'openai-audio:onyx', label: 'GPT Audio — Laki-laki, Onyx (Pollinations)' },
+    { value: 'openai-audio:echo', label: 'GPT Audio — Laki-laki, Echo (Pollinations)' },
+    { value: 'openai-audio:fable', label: 'GPT Audio — Laki-laki, Fable (Pollinations)' },
+  ]
+  const custom = aiConfig.voice_models.map(m => ({
+    value: `custom:${m.id}`,
+    label: `🎙️ ${m.label} — ${m.model} / ${m.voice} (custom)`,
+  }))
+  return [...custom, ...base]
+})
+
+// ── Hook Variations V3 — keys tetap kompatibel dengan API lama ───────────────
+const hookProfileMeta = {
+  short: { profileLabel: 'Pendek', duration: '30–37 detik' },
+  standard: { profileLabel: 'Standar', duration: '30–45 detik' },
+  long: { profileLabel: 'Panjang', duration: '37–50 detik' },
+}
+const v3Variation = (key, label, profile, description) => ({
+  key, label, profile, description, ...hookProfileMeta[profile],
+})
+const universalVariations = [
+  v3Variation('v2_problem', '🚀 Problem', 'standard', 'Masalah spesifik audiens, solusi, lalu CTA.'),
+  v3Variation('v2_personal', '🚀 Personal', 'standard', 'Satu POV dari pengalaman yang diberikan.'),
+  v3Variation('v2_education', '🚀 Edukasi', 'standard', 'Insight praktis tanpa statistik karangan.'),
+  v3Variation('v2_contra', '🚀 Pro-Kontra', 'standard', 'Tantang satu asumsi aman dengan fakta input.'),
+  v3Variation('v2_visual', '🚀 Visual Shock', 'standard', 'Reaksi spontan yang cocok dengan visual context.'),
+]
 const hookVariations = {
   tiktok: [
-    { key: 'viral',  label: '🔥 Viral Impulsif' },
-    { key: 'shock',  label: '😱 Shock & Reveal' },
-    { key: 'story',  label: '💬 Cerita Personal' },
-    { key: 'fomo',   label: '⚡ FOMO Urgency'   },
-    { key: 'v2_problem',   label: '🚀 V2: Problem' },
-    { key: 'v2_personal',  label: '🚀 V2: Personal' },
-    { key: 'v2_education', label: '🚀 V2: Edukasi' },
-    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
-    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
+    v3Variation('viral', '🔥 Viral Impulsif', 'short', 'Hook tinggi energi dengan satu keunggulan relevan.'),
+    v3Variation('shock', '😱 Shock & Reveal', 'standard', 'Aksi nyata diikuti reveal fitur tersembunyi.'),
+    v3Variation('story', '💬 Cerita Personal', 'long', 'Cerita satu orang dari pengalaman input.'),
+    v3Variation('fomo', '⚡ FOMO Healthy', 'short', 'Urgensi hanya dari fakta promo atau scarcity.'),
+    ...universalVariations,
   ],
   shopee: [
-    { key: 'flash',   label: '🛒 Flash Sale'    },
-    { key: 'review',  label: '⭐ Review Jujur'  },
-    { key: 'bundle',  label: '🎁 Bundle Deal'   },
-    { key: 'premium', label: '💎 Premium Value' },
-    { key: 'v2_problem',   label: '🚀 V2: Problem' },
-    { key: 'v2_personal',  label: '🚀 V2: Personal' },
-    { key: 'v2_education', label: '🚀 V2: Edukasi' },
-    { key: 'v2_contra',    label: '🚀 V2: Pro-Kontra' },
-    { key: 'v2_visual',    label: '🚀 V2: Visual Shock' },
+    v3Variation('flash', '🛒 Flash Sale', 'short', 'Deal Shopee dari fakta harga dan promo.'),
+    v3Variation('review', '⭐ Review Jujur', 'long', 'Review jujur atau buyer checklist yang jujur.'),
+    v3Variation('bundle', '🎁 Bundle Deal', 'short', 'Nilai paket dari isi dan bonus terverifikasi.'),
+    v3Variation('premium', '💎 Premium Value', 'long', 'Nilai premium dari kualitas terverifikasi.'),
+    ...universalVariations,
   ],
+}
+const selectedHookVariation = computed(() =>
+  hookVariations[hookType.value].find(v => v.key === selectedVariation.value)
+  || hookVariations[hookType.value][0],
+)
+const hookCanGenerate = computed(() =>
+  !!productName.value.trim()
+  && (selectedVariation.value !== 'v2_visual' || !!visualContext.value.trim()),
+)
+
+function setHookType(platform) {
+  hookType.value = platform
+  if (!hookVariations[platform].some(v => v.key === selectedVariation.value)) {
+    selectedVariation.value = hookVariations[platform][0].key
+  }
 }
 
 // ── Generate Hook via AI ─────────────────────────────────────────────────────
 async function generateHook() {
   const name = productName.value.trim()
-  if (!name) return
+  if (!name || !hookCanGenerate.value) {
+    if (selectedVariation.value === 'v2_visual' && !visualContext.value.trim()) {
+      hookError.value = 'Isi konteks visual terlebih dahulu untuk Visual Shock.'
+    }
+    return
+  }
 
   isGenerating.value = true
   hookGenerated.value = false
   hookError.value = ''
-
-  const variations = hookVariations[hookType.value]
-  const varItem    = variations[selectedVariation.value] ?? variations[0]
+  hookMetadata.value = null
+  const varItem = selectedHookVariation.value
 
   try {
     const formData = new FormData()
     formData.append('product_name', name)
     formData.append('hook_type',    hookType.value)
     formData.append('variation',    varItem.key)
+    formData.append('product_facts', productFacts.value.trim())
+    formData.append('target_audience', targetAudience.value.trim())
+    formData.append('experience_notes', experienceNotes.value.trim())
+    formData.append('visual_context', visualContext.value.trim())
+    formData.append('cta_preference', ctaPreference.value.trim())
 
     const response = await axios.post(`${API_BASE_URL}/api/generate-hook`, formData, { timeout: 60000 })
     prompt.value        = response.data.script
     logId.value         = response.data.log_id || ''
+    hookMetadata.value  = response.data
     hookGenerated.value = true
 
     setTimeout(() => {
@@ -755,6 +1256,16 @@ async function handleSubmit() {
       formData.append('prompt_text', prompt.value.trim())
       formData.append('voice_model', voiceModel.value)
       formData.append('duration_mode', durationMode.value)
+      formData.append('burn_subtitles', String(burnSubtitles.value))
+      formData.append('subtitle_size', subtitleStyle.size)
+      formData.append('subtitle_color', subtitleStyle.color)
+      formData.append('subtitle_outline', subtitleStyle.outline)
+      formData.append('subtitle_outline_color', subtitleStyle.outlineColor)
+      formData.append('subtitle_position', subtitleStyle.position)
+      formData.append('subtitle_caps', String(subtitleStyle.caps))
+      formData.append('subtitle_font_id', subtitleStyle.fontId || '')
+      formData.append('output_ratio', outputRatio.value)
+      formData.append('quality', quality.value)
       if (logId.value) formData.append('log_id', logId.value)
 
       if (libraryVideo.value) {
