@@ -177,6 +177,10 @@ Buat file `.env` di dalam folder `backend/` dengan format berikut:
 
 ```env
 POLLINATIONS_API_URL=https://gen.pollinations.ai
+
+# OPSIONAL — hanya untuk provider Pollinations (hook bawaan & GPT-Audio).
+# Tanpa key ini, pakai provider custom OpenAI-compatible (Pengaturan AI ⚙️)
+# atau Edge-TTS. Get key: https://enter.pollinations.ai
 POLLINATIONS_API_KEY=sk_xxxxxxxxxxxxxxxx
 
 # Security Configuration
@@ -257,6 +261,12 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `GET` | `/api/fonts` | ✅ | Daftar custom font (subtitle) |
 | `POST` | `/api/fonts/upload` | ✅ | Upload custom font (.ttf/.otf/.ttc, maks 5 MB) |
 | `DELETE` | `/api/fonts/{font_id}` | ✅ | Hapus custom font |
+| `GET` | `/api/ai-config` | ✅ | Konfigurasi AI custom — teks & suara (API key ter-mask) |
+| `POST` | `/api/ai-config/text-models` | ✅ | Tambah/update model teks OpenAI-compatible (hook) |
+| `DELETE` | `/api/ai-config/text-models/{id}` | ✅ | Hapus model teks |
+| `POST` | `/api/ai-config/voice-models` | ✅ | Tambah/update model suara OpenAI-compatible (voiceover) |
+| `DELETE` | `/api/ai-config/voice-models/{id}` | ✅ | Hapus model suara |
+| `POST` | `/api/ai-config/active-text-model` | ✅ | Pilih model teks aktif (`""` = Pollinations bawaan) |
 | `GET` | `/api/videos/{file}` | — | Static: hasil render |
 | `GET` | `/api/audios/{file}` | — | Static: voiceover |
 | `GET` | `/api/subs/{file}` | — | Static: subtitle `.srt`/`.ass` |
@@ -273,7 +283,7 @@ Tugas latar `clean_old_videos` menghapus file yang lewat batas secara otomatis. 
 | `video` | File (.mp4/.mov/.avi) | ✅* | — | Raw video clip |
 | `prompt_text` | string | ✅ | — | Voiceover script |
 | `log_id` | string | ❌ | — | UUID from generation log (links video to history and updates edited scripts) |
-| `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS) or `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations) |
+| `voice_model` | string | ❌ | `id-ID-GadisNeural` | `id-ID-GadisNeural` (Edge-TTS), `openai-audio:shimmer`/`nova`/`alloy`/`onyx`/`echo`/`fable` (GPT Audio via Pollinations), atau `custom:{id}` (model suara OpenAI-compatible dari Pengaturan AI ⚙️) |
 | `duration_mode` | string | ❌ | `auto` | `auto` / `loop_video` / `trim_audio` |
 | `force_portrait` | string | ❌ | `true` | Crop video ke 9:16 |
 | `burn_subtitles` | string | ❌ | `false` | `true` / `false` — burn caption auto-subtitle ke video |
@@ -331,6 +341,28 @@ Run the MCP server:
 cd backend
 python mcp_server.py
 ```
+
+---
+
+## 🧩 Konfigurasi AI Provider (OpenAI-Compatible)
+
+Aplikasi memisahkan **model teks (hook)** dan **model suara (voice)** — masing-masing bisa memakai provider AI sesuai kebutuhan:
+
+| Peran | Default | Custom (OpenAI-compatible) |
+|---|---|---|
+| **Model Teks (hook)** | Pollinations (`model: openai`) | `POST {base_url}/chat/completions` — bebas model (gpt-4o-mini, deepseek-chat, llama, dll.) |
+| **Model Suara (voice)** | Edge-TTS (Gadis) + GPT-Audio (Pollinations) | `POST {base_url}/audio/speech` (`response_format: mp3`) — bebas model + voice (OpenAI TTS, ElevenLabs, MiniMax, LocalAI, dll.) |
+
+Kelola lewat tombol **⚙️ Kelola AI Model** di editor (Step 1 hook & Step 2 voice):
+
+1. **Model Teks** — isi *Label*, *Base URL* (akhiran `/v1`), *API Key*, *Model* → **Aktifkan untuk hook**.
+   Hanya **satu model teks aktif** (1 AI model untuk generate hook text).
+2. **Model Suara** — isi *Label*, *Base URL*, *API Key*, *Model*, *Voice*, *Speed* → otomatis muncul di dropdown **Voice Model** sebagai `custom:{id}` (bisa ditambah beberapa provider).
+
+Catatan:
+- API key disimpan di server (`backend/logs/ai_config.json` — **tidak ikut Git**) dan selalu ditampilkan **ter-mask**. Saat edit, mengosongkan API key = **mempertahankan key lama**.
+- `POLLINATIONS_API_KEY` kini **opsional** — hanya wajib saat provider Pollinations yang dipakai (hook bawaan / GPT-Audio).
+- Word-boundary (timing subtitle) hanya dari Edge-TTS; voice custom memakai timing proporsional.
 
 ---
 

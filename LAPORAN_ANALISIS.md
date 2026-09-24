@@ -236,4 +236,25 @@ Diurutkan berdasarkan nilai untuk use-case affiliate marketer harian:
 
 Fondasi produk sudah kuat dan visi fiturnya jelas. Titik terlemah ada pada **konsistensi** (port, validasi file, perilaku durasi, persist hasil) dan **kebersihan deployment** (workers vs state in-memory, nginx proxy). Lima perbaikan P0 di §3–4 saja sudah akan menghapus seluruh "video hilang / deploy 502 / token aneh" yang paling mungkin dikeluhkan user nyata. Setelah itu, subtitle burn-in dan batch generate adalah investasi fitur dengan ROI tertinggi untuk target pengguna affiliate marketer.
 
-*Dokumen ini murni analisis — tidak ada kode yang diubah, tidak ada commit/push/PR.*
+*Bagian 1–11 murni analisis awal — tidak ada kode yang diubah. Temuan lanjutan &
+perbaikan yang sudah dieksekusi terdokumentasi di [CHANGELOG.md](./CHANGELOG.md).*
+
+---
+
+## Lampiran A — Audit Arsitektur AI: Model Teks vs Model Suara (2026-09-24)
+
+Audit sebelum implementasi fitur **Custom AI Provider** (temuan saat itu):
+
+| Aspek | Kondisi sebelum | Risiko |
+|---|---|---|
+| Model teks (hook) | Selalu Pollinations `/v1/chat/completions`, `model: "openai"` hardcoded | Tidak bisa ganti provider/model LLM |
+| Model suara (voice) | 3 jalur hardcoded (Edge-TTS, `openai-audio:*` Pollinations, `/voice`); dropdown terkunci 7 opsi | Tidak bisa pakai TTS lain; padahal `mcp_server.py` sudah memakai standar `/v1/audio/speech` |
+| API key | Tunggal `POLLINATIONS_API_KEY`, wajib saat startup (`RuntimeError`) | Memaksa Pollinations walau hanya butuh Edge-TTS |
+| Pemisahan peran | Teks & suara sudah terpisah fungsi, tapi terkunci 1 provider | Tidak bisa "1 model teks + voice model sesuai kebutuhan" |
+
+**Keputusan desain (hasil audit):**
+1. **1 model teks aktif** untuk hook — default Pollinations ATAU custom OpenAI-compatible (`chat/completions`).
+2. **Daftar model suara custom** OpenAI-compatible (`audio/speech`) — per provider: Base URL + API Key + Model + Voice + Speed; dipilih per render via dropdown (`custom:{id}`).
+3. Konfigurasi **runtime** di `backend/logs/ai_config.json` (tidak ikut Git) + panel ⚙️ di UI; API key **ter-mask** di semua response GET.
+4. `POLLINATIONS_API_KEY` menjadi opsional (hanya untuk provider Pollinations).
+5. Word-boundary subtitle tetap dari Edge-TTS; provider custom memakai timing proporsional (fallback yang sudah ada).

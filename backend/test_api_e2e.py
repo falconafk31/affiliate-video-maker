@@ -1,7 +1,7 @@
 """
-E2E offline untuk pipeline job video + Auto Subtitle Burn-in (termasuk custom
-font & style). TTS di-stub (audio sine) — seluruh sisanya ASLI: endpoint HTTP,
-job store SSE, FFmpeg merge, burn subtitle, upload font TTF/OTF/TTC.
+E2E offline untuk pipeline job video + Auto Subtitle + Custom Font/Style +
+Custom AI Provider (OpenAI-compatible teks & suara). TTS bawaan di-stub (audio
+sine) — jalur custom memakai fake OpenAI server sungguhan di localhost.
 
 Jalankan:  cd backend && ../.venv/bin/python test_api_e2e.py
 """
@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import httpx
@@ -56,8 +58,52 @@ def make_test_font(path: Path, family: str = "TestSubtitleFont") -> None:
     fb.save(str(path))
 
 
+# ── Fake OpenAI-compatible server (chat/completions + audio/speech) ───────────
+FAKE_STATE = {"chat_model": None, "chat_auth": None, "speech": None, "speech_auth": None}
+FAKE_MP3: Path | None = None
+
+
+class FakeAIHandler(BaseHTTPRequestHandler):
+    def log_message(self, *args):  # senyap
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except Exception:
+            body = {}
+        path = self.path.rstrip("/")
+        if path.endswith("/chat/completions"):
+            FAKE_STATE["chat_model"] = body.get("model")
+            FAKE_STATE["chat_auth"] = self.headers.get("Authorization", "")
+            out = json.dumps({
+                "choices": [{"message": {"content": "Cek kipas mini ini, baterainya awet dua hari penuh!"}}]
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+        elif path.endswith("/audio/speech"):
+            FAKE_STATE["speech"] = {"model": body.get("model"), "voice": body.get("voice"),
+                                    "input_len": len(body.get("input", ""))}
+            FAKE_STATE["speech_auth"] = self.headers.get("Authorization", "")
+            data = FAKE_MP3.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
 async def fake_generate_voice(prompt, voice_model, output_path):
-    """Stub TTS: audio sine sepanjang ± prompt words, + word-boundary tiruan."""
+    """Stub TTS bawaan; jalur custom: diteruskan ke fungsi ASLI (uji integrasi nyata)."""
+    if str(voice_model).startswith("custom:"):
+        return await real_generate_voice(prompt, voice_model, output_path)
     words = re.findall(r"\S+", prompt)
     dur = max(2.0, 0.32 * len(words))
     subprocess.run(
@@ -70,6 +116,9 @@ async def fake_generate_voice(prompt, voice_model, output_path):
         {"start": round(i * step, 3), "end": round(i * step + step * 0.9, 3), "text": w}
         for i, w in enumerate(words)
     ]
+
+
+real_generate_voice = main.generate_voice_from_pollinations
 
 
 async def wait_job(client, auth, data: dict, files: dict) -> dict:
@@ -89,7 +138,11 @@ async def wait_job(client, auth, data: dict, files: dict) -> dict:
 
 
 async def run() -> None:
+    global FAKE_MP3
     main.generate_voice_from_pollinations = fake_generate_voice
+
+    logs_csv = Path(main.__file__).parent / "logs" / "hook_logs.csv"
+    csv_backup = logs_csv.read_bytes() if logs_csv.exists() else b""
 
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test", timeout=60) as client:
@@ -198,13 +251,110 @@ async def run() -> None:
             check("font terhapus dari daftar",
                   not any(x["id"] == font_id for x in r.json().get("fonts", [])))
 
+            # ── 6) Custom AI Provider (OpenAI-compatible) ────────────────────
+            FAKE_MP3 = td / "fake_tts.mp3"
+            subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=44100",
+                            "-t", "2", "-b:a", "128k", str(FAKE_MP3)],
+                           capture_output=True, check=True)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), FakeAIHandler)
+            port = server.server_address[1]
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            base_url = f"http://127.0.0.1:{port}/v1"
+            try:
+                # Model teks custom
+                r = await client.post("/api/ai-config/text-models", headers=auth, json={
+                    "label": "Fake LLM", "base_url": base_url,
+                    "api_key": "sk-test-secret-123456", "model": "fake-gpt"})
+                check("POST text-models → 200 + id", r.status_code == 200
+                      and r.json().get("model", {}).get("id"), r.text[:150])
+                tid = r.json()["model"]["id"]
+                check("respons POST: api_key ter-mask", "…" in r.json()["model"]["api_key"]
+                      and r.json()["model"]["has_key"] is True)
+
+                r = await client.get("/api/ai-config", headers=auth)
+                check("GET ai-config: key ter-mask di daftar",
+                      all(m["api_key"] != "sk-test-secret-123456" for m in r.json()["text_models"]))
+
+                r = await client.post("/api/ai-config/active-text-model",
+                                      headers=auth, json={"id": tid})
+                check("aktifkan model teks custom", r.status_code == 200
+                      and r.json()["active_text_model"] == tid)
+
+                r = await client.post("/api/generate-hook", headers=auth, data={
+                    "product_name": "Kipas Mini 2000", "hook_type": "tiktok", "variation": "viral"})
+                check("generate-hook via custom LLM → 200", r.status_code == 200, r.text[:150])
+                check("hook pakai model custom + key terkirim",
+                      FAKE_STATE["chat_model"] == "fake-gpt"
+                      and FAKE_STATE["chat_auth"] == "Bearer sk-test-secret-123456",
+                      str(FAKE_STATE))
+                check("isi hook dari fake LLM masuk", "kipas mini" in r.json().get("script", "").lower())
+
+                # Edit dengan key kosong → key lama dipertahankan
+                r = await client.post("/api/ai-config/text-models", headers=auth, json={
+                    "id": tid, "label": "Fake LLM v2", "base_url": base_url,
+                    "api_key": "", "model": "fake-gpt-v2"})
+                r = await client.get("/api/ai-config", headers=auth)
+                check("edit tanpa key → key lama tetap (has_key)",
+                      any(m["id"] == tid and m["has_key"] for m in r.json()["text_models"]))
+
+                # Model suara custom
+                r = await client.post("/api/ai-config/voice-models", headers=auth, json={
+                    "label": "Fake TTS", "base_url": base_url,
+                    "api_key": "sk-voice-key-999", "model": "fake-tts",
+                    "voice": "mini-voice", "speed": 1.0})
+                check("POST voice-models → 200 + id", r.status_code == 200
+                      and r.json().get("model", {}).get("id"), r.text[:150])
+                vid_custom = r.json()["model"]["id"]
+
+                # Job 4: voice custom OpenAI-compatible
+                with open(raw, "rb") as f:
+                    done4 = await wait_job(client, auth,
+                        {"prompt_text": script, "voice_model": f"custom:{vid_custom}",
+                         "duration_mode": "auto", "burn_subtitles": "false"},
+                        {"video": ("raw.mp4", f, "video/mp4")})
+                check("Job 4 (custom voice) → done", done4.get("status") == "done",
+                      str(done4.get("error") or done4.get("status")))
+                check("TTS custom: model+voice sesuai konfigurasi + auth",
+                      FAKE_STATE["speech"] and FAKE_STATE["speech"]["model"] == "fake-tts"
+                      and FAKE_STATE["speech"]["voice"] == "mini-voice"
+                      and FAKE_STATE["speech_auth"] == "Bearer sk-voice-key-999",
+                      str(FAKE_STATE["speech"]))
+
+                # Job 5: voice id tidak valid → error terkendali
+                with open(raw, "rb") as f:
+                    done5 = await wait_job(client, auth,
+                        {"prompt_text": script, "voice_model": "custom:doesnotexist",
+                         "duration_mode": "auto", "burn_subtitles": "false"},
+                        {"video": ("raw.mp4", f, "video/mp4")})
+                check("Job 5 (custom voice id salah) → error jelas",
+                      done5.get("status") == "error"
+                      and "tidak ditemukan" in (done5.get("error") or ""),
+                      str(done5.get("error")))
+
+                # Kembalikan ke default + bersihkan konfigurasi
+                r = await client.post("/api/ai-config/active-text-model",
+                                      headers=auth, json={"id": ""})
+                check("reset model teks ke bawaan", r.json().get("active_text_model") == "")
+                r = await client.delete(f"/api/ai-config/text-models/{tid}", headers=auth)
+                check("DELETE text-models → ok", r.status_code == 200)
+                r = await client.delete(f"/api/ai-config/voice-models/{vid_custom}", headers=auth)
+                check("DELETE voice-models → ok", r.status_code == 200)
+                r = await client.get("/api/ai-config", headers=auth)
+                check("konfigurasi bersih setelah dihapus",
+                      not r.json()["text_models"] and not r.json()["voice_models"])
+            finally:
+                server.shutdown()
+
             # bersihkan artefak test
             for p in list(main.VIDEOS_DIR.glob("*.mp4")) + list(main.SUBS_DIR.glob("*")):
                 p.unlink(missing_ok=True)
 
+    if logs_csv.exists():
+        logs_csv.write_bytes(csv_backup)
+
 
 print("═" * 60)
-print("E2E offline — job pipeline + Auto Subtitle + Custom Font/Style")
+print("E2E offline — job pipeline + Auto Subtitle + Custom Font/Style + Custom AI Provider")
 print("═" * 60)
 asyncio.run(run())
 print("═" * 60)

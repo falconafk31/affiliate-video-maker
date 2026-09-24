@@ -91,6 +91,13 @@
       </div>
 
       <!-- Generate button -->
+      <div class="flex items-center justify-between text-xs text-slate-500">
+        <span>Model teks: <span class="text-slate-300">{{ activeTextLabel }}</span></span>
+        <button type="button" @click="showAiSettings = true"
+                class="underline underline-offset-2 hover:text-brand-300 transition-colors">
+          ⚙️ Ganti model
+        </button>
+      </div>
       <button
         type="button"
         id="generate-hook-btn"
@@ -294,10 +301,19 @@
 
       <!-- Voice Model -->
       <div>
-        <label for="voice-model" class="block text-sm font-medium text-slate-300 mb-2">Voice Model</label>
+        <div class="flex items-center justify-between mb-2">
+          <label for="voice-model" class="block text-sm font-medium text-slate-300">Voice Model</label>
+          <button type="button" @click="showAiSettings = true"
+                  class="text-xs text-slate-400 hover:text-brand-300 underline underline-offset-2 transition-colors">
+            ⚙️ Kelola AI Model
+          </button>
+        </div>
         <select id="voice-model" v-model="voiceModel" class="input-retro">
           <option v-for="v in voiceOptions" :key="v.value" :value="v.value">{{ v.label }}</option>
         </select>
+        <p v-if="voiceModel.startsWith('custom:')" class="text-[11px] text-slate-500 mt-1">
+          Model suara custom (OpenAI-compatible) — timing subtitle proporsional.
+        </p>
       </div>
 
       <!-- Auto Subtitle Burn-in (hanya mode video) -->
@@ -504,6 +520,84 @@
     <!-- ═══════════════════════════════════════════════════════════════════════
          Result Card
     ════════════════════════════════════════════════════════════════════════ -->
+    <!-- ⚙️ Modal: Kelola AI Model (teks & suara OpenAI-compatible) -->
+    <div v-if="showAiSettings" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" @click.self="showAiSettings = false">
+      <div class="retro-box p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-6">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-slate-100">⚙️ Kelola AI Model</h3>
+          <button type="button" @click="showAiSettings = false" class="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+        </div>
+        <p class="text-xs text-slate-500">
+          Pisahkan <b class="text-slate-300">model teks</b> (untuk hook) dan <b class="text-slate-300">model suara</b> (untuk voiceover).
+          Provider apa pun yang <b>OpenAI-compatible</b> bisa dipakai — isi Base URL (akhiran <code>/v1</code>), API Key, dan nama model sesuai provider.
+          API key disimpan aman di server dan ditampilkan ter-mask.
+        </p>
+
+        <!-- ── Model Teks (hook) ─────────────────────────────────────────── -->
+        <section class="space-y-2">
+          <h4 class="text-sm font-bold text-brand-300">🧠 Model Teks (Generate Hook)</h4>
+          <div class="space-y-1">
+            <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <input type="radio" :value="''" v-model="pendingActiveText" class="accent-brand-500" />
+              Pollinations (bawaan)
+            </label>
+            <label v-for="m in aiConfig.text_models" :key="m.id"
+                   class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <input type="radio" :value="m.id" v-model="pendingActiveText" class="accent-brand-500" />
+              {{ m.label }} — <span class="text-slate-500">{{ m.model }} · {{ m.base_url }}</span>
+              <span class="ml-auto text-slate-500">{{ m.api_key || '(tanpa key)' }}</span>
+              <button type="button" @click="deleteAiTextModel(m.id)" class="text-red-400 hover:text-red-300">hapus</button>
+            </label>
+          </div>
+          <button type="button" @click="activateAiTextModel"
+                  :disabled="pendingActiveText === aiConfig.active_text_model"
+                  class="btn-retro text-xs px-3 py-1.5 disabled:opacity-40">
+            Aktifkan untuk Hook
+          </button>
+
+          <details class="border-2 border-slate-700 p-2">
+            <summary class="text-xs text-slate-400 cursor-pointer">+ Tambah / edit model teks</summary>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <input v-model="textForm.label" placeholder="Label (mis. GPT-4o-mini)" class="input-retro text-xs" />
+              <input v-model="textForm.model" placeholder="Model (mis. gpt-4o-mini)" class="input-retro text-xs" />
+              <input v-model="textForm.base_url" placeholder="Base URL — https://api.openai.com/v1" class="input-retro text-xs sm:col-span-2" />
+              <input v-model="textForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs sm:col-span-2" />
+            </div>
+            <button type="button" @click="saveAiTextModel" class="btn-retro text-xs px-3 py-1.5 mt-2">Simpan Model Teks</button>
+          </details>
+        </section>
+
+        <!-- ── Model Suara (voiceover) ───────────────────────────────────── -->
+        <section class="space-y-2">
+          <h4 class="text-sm font-bold text-brand-300">🎙️ Model Suara (Voiceover)</h4>
+          <div class="space-y-1">
+            <div v-for="m in aiConfig.voice_models" :key="m.id"
+                 class="flex items-center gap-2 text-xs text-slate-300">
+              {{ m.label }} — <span class="text-slate-500">{{ m.model }} / {{ m.voice }} · {{ m.base_url }}</span>
+              <span class="ml-auto text-slate-500">{{ m.api_key || '(tanpa key)' }}</span>
+              <button type="button" @click="deleteAiVoiceModel(m.id)" class="text-red-400 hover:text-red-300">hapus</button>
+            </div>
+            <p v-if="!aiConfig.voice_models.length" class="text-xs text-slate-600">Belum ada model suara custom — tambah di bawah.</p>
+          </div>
+
+          <details class="border-2 border-slate-700 p-2">
+            <summary class="text-xs text-slate-400 cursor-pointer">+ Tambah / edit model suara</summary>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <input v-model="voiceForm.label" placeholder="Label (mis. ElevenLabs Nova)" class="input-retro text-xs" />
+              <input v-model="voiceForm.model" placeholder="Model (mis. tts-1)" class="input-retro text-xs" />
+              <input v-model="voiceForm.base_url" placeholder="Base URL — https://api.openai.com/v1" class="input-retro text-xs" />
+              <input v-model="voiceForm.voice" placeholder="Voice (mis. nova / alloy)" class="input-retro text-xs" />
+              <input v-model="voiceForm.api_key" type="password" placeholder="API Key (kosong = pertahankan lama)" class="input-retro text-xs" />
+              <input v-model.number="voiceForm.speed" type="number" min="0.25" max="4" step="0.05" placeholder="Speed (1.0)" class="input-retro text-xs" />
+            </div>
+            <button type="button" @click="saveAiVoiceModel" class="btn-retro text-xs px-3 py-1.5 mt-2">Simpan Model Suara</button>
+          </details>
+        </section>
+
+        <p v-if="aiStatus" class="text-xs" :class="aiStatusIsError ? 'text-red-400' : 'text-emerald-400'">{{ aiStatus }}</p>
+      </div>
+    </div>
+
     <div v-if="outputVideoUrl || outputAudioUrl" id="result-section" class="retro-box p-6 sm:p-8 space-y-5 animate-fade-in">
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-none bg-green-500/20 flex items-center justify-center">
@@ -738,6 +832,7 @@ const errors = reactive({ video: '', prompt: '' })
 // Check sessionStorage for library video on mount (set by VideoLibrary.vue)
 onMounted(() => {
   fetchSubtitleFonts()
+  fetchAiConfig()
   const stored = sessionStorage.getItem('library_video')
   if (stored) {
     try {
@@ -785,15 +880,118 @@ const durationModes = [
 ]
 
 // ── Voice Options ─────────────────────────────────────────────────────────────
-const voiceOptions = [
-  { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
-  { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
-  { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
-  { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },
-  { value: 'openai-audio:onyx', label: 'GPT Audio — Laki-laki, Onyx (Pollinations)' },
-  { value: 'openai-audio:echo', label: 'GPT Audio — Laki-laki, Echo (Pollinations)' },
-  { value: 'openai-audio:fable', label: 'GPT Audio — Laki-laki, Fable (Pollinations)' },
-]
+// ── Custom AI Provider (OpenAI-compatible) ────────────────────────────────────
+const showAiSettings = ref(false)
+const aiConfig = reactive({ text_models: [], voice_models: [], active_text_model: '' })
+const pendingActiveText = ref('')
+const textForm  = reactive({ id: null, label: '', model: '', base_url: '', api_key: '' })
+const voiceForm = reactive({ id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0 })
+const aiStatus        = ref('')
+const aiStatusIsError = ref(false)
+
+function flashAiStatus(msg, isError = false) {
+  aiStatus.value = msg
+  aiStatusIsError.value = isError
+  setTimeout(() => { aiStatus.value = '' }, 5000)
+}
+
+async function fetchAiConfig() {
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/ai-config`)
+    aiConfig.text_models      = res.data.text_models || []
+    aiConfig.voice_models     = res.data.voice_models || []
+    aiConfig.active_text_model = res.data.active_text_model || ''
+    pendingActiveText.value   = aiConfig.active_text_model
+  } catch { /* biarkan kosong bila gagal */ }
+}
+
+async function saveAiTextModel() {
+  if (!textForm.label.trim() || !textForm.model.trim() || !textForm.base_url.trim()) {
+    flashAiStatus('Label, Base URL, dan Model wajib diisi.', true); return
+  }
+  try {
+    const payload = { ...textForm }
+    if (!payload.id) delete payload.id
+    await axios.post(`${API_BASE_URL}/api/ai-config/text-models`, payload)
+    Object.assign(textForm, { id: null, label: '', model: '', base_url: '', api_key: '' })
+    await fetchAiConfig()
+    flashAiStatus('✅ Model teks tersimpan.')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal menyimpan model teks.', true)
+  }
+}
+
+async function deleteAiTextModel(id) {
+  if (!confirm('Hapus model teks ini?')) return
+  try {
+    await axios.delete(`${API_BASE_URL}/api/ai-config/text-models/${id}`)
+    await fetchAiConfig()
+    flashAiStatus('Model teks dihapus.')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal menghapus.', true)
+  }
+}
+
+async function activateAiTextModel() {
+  try {
+    await axios.post(`${API_BASE_URL}/api/ai-config/active-text-model`, { id: pendingActiveText.value })
+    await fetchAiConfig()
+    flashAiStatus(pendingActiveText.value ? '✅ Model teks aktif untuk hook.' : '✅ Kembali ke Pollinations (bawaan).')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal mengaktifkan model.', true)
+  }
+}
+
+async function saveAiVoiceModel() {
+  if (!voiceForm.label.trim() || !voiceForm.model.trim() || !voiceForm.base_url.trim() || !voiceForm.voice.trim()) {
+    flashAiStatus('Label, Base URL, Model, dan Voice wajib diisi.', true); return
+  }
+  try {
+    const payload = { ...voiceForm }
+    if (!payload.id) delete payload.id
+    await axios.post(`${API_BASE_URL}/api/ai-config/voice-models`, payload)
+    Object.assign(voiceForm, { id: null, label: '', model: '', base_url: '', api_key: '', voice: '', speed: 1.0 })
+    await fetchAiConfig()
+    flashAiStatus('✅ Model suara tersimpan — muncul di dropdown Voice Model.')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal menyimpan model suara.', true)
+  }
+}
+
+async function deleteAiVoiceModel(id) {
+  if (!confirm('Hapus model suara ini?')) return
+  try {
+    await axios.delete(`${API_BASE_URL}/api/ai-config/voice-models/${id}`)
+    if (voiceModel.value === `custom:${id}`) voiceModel.value = 'id-ID-GadisNeural'
+    await fetchAiConfig()
+    flashAiStatus('Model suara dihapus.')
+  } catch (err) {
+    flashAiStatus(err?.response?.data?.detail || 'Gagal menghapus.', true)
+  }
+}
+
+const activeTextLabel = computed(() => {
+  if (!aiConfig.active_text_model) return 'Pollinations (bawaan)'
+  const m = aiConfig.text_models.find(x => x.id === aiConfig.active_text_model)
+  return m ? `${m.label} (${m.model})` : 'Pollinations (bawaan)'
+})
+
+const voiceOptions = computed(() => {
+  const base = [
+    { value: 'id-ID-GadisNeural', label: 'Edge-TTS — Perempuan, Natural Indonesia (Gadis)' },
+    { value: 'openai-audio:shimmer', label: 'GPT Audio — Perempuan, Shimmer (Pollinations)' },
+    { value: 'openai-audio:nova', label: 'GPT Audio — Perempuan, Nova (Pollinations)' },
+    { value: 'openai-audio:alloy', label: 'GPT Audio — Netral, Alloy (Pollinations)' },
+    { value: 'openai-audio:onyx', label: 'GPT Audio — Laki-laki, Onyx (Pollinations)' },
+    { value: 'openai-audio:echo', label: 'GPT Audio — Laki-laki, Echo (Pollinations)' },
+    { value: 'openai-audio:fable', label: 'GPT Audio — Laki-laki, Fable (Pollinations)' },
+  ]
+  const custom = aiConfig.voice_models.map(m => ({
+    value: `custom:${m.id}`,
+    label: `🎙️ ${m.label} — ${m.model} / ${m.voice} (custom)`,
+  }))
+  return [...custom, ...base]
+})
 
 // ── Hook Variations (keys must match backend HOOK_STYLE_PROMPTS) ─────────────
 const hookVariations = {

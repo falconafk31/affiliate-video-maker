@@ -12,6 +12,37 @@ Format mengacu pada [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.4.0] - 2026-09-24
+
+**Custom AI Provider (OpenAI-compatible) — model teks & model suara terpisah.**
+
+### Added
+- **🧠 Model Teks Custom (untuk hook)** — 1 model teks aktif, bisa diganti ke provider
+  **OpenAI-compatible** mana pun (`POST {base_url}/chat/completions`): GPT-4o-mini,
+  DeepSeek, Ollama/LM Studio, OpenRouter, dll. — *Label, Base URL, API Key, Model* bebas.
+- **🎙️ Model Suara Custom (untuk voiceover)** — daftar voice model **OpenAI-compatible**
+  (`POST {base_url}/audio/speech`, `response_format: mp3`): OpenAI TTS, ElevenLabs,
+  MiniMax, LocalAI, dll. — *Label, Base URL, API Key, Model, Voice, Speed*. Otomatis muncul
+  di dropdown **Voice Model** sebagai `custom:{id}` (bisa banyak provider sekaligus).
+- **Panel ⚙️ Kelola AI Model** di editor — CRUD model teks & suara, pilih model teks aktif
+  ("" = Pollinations bawaan), API key selalu tampil **ter-mask**; edit dengan key kosong =
+  pertahankan key lama.
+- Endpoint baru: `GET /api/ai-config`, `POST/DELETE /api/ai-config/text-models`,
+  `POST/DELETE /api/ai-config/voice-models`, `POST /api/ai-config/active-text-model` (ber-Auth).
+  Konfigurasi disimpan di `backend/logs/ai_config.json` (tidak ikut Git).
+- Test E2E: fake OpenAI server lokal — uji generate-hook via custom LLM (model+API key
+  terkirim benar), render job dengan custom voice (`custom:{id}`), key masking, keep-key
+  saat edit kosong, error terkendali untuk id tak dikenal.
+
+### Changed
+- `POLLINATIONS_API_KEY` kini **opsional** — hanya wajib saat provider Pollinations dipakai;
+  tanpa key, tersedia Edge-TTS + provider custom.
+- `generate_voice_from_pollinations()` mendukung `custom:{id}` (TTS OpenAI-compatible);
+  `POST /api/generate-hook` memakai model teks aktif (custom / Pollinations).
+- README: dokumentasi konfigurasi AI provider + endpoint & param baru.
+
+---
+
 ## [0.3.0] - 2026-09-24
 
 **Custom Subtitle Style & Custom Font Import.**

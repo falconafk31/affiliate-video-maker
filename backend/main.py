@@ -88,9 +88,9 @@ class LoginRequest(BaseModel):
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 POLLINATIONS_API_URL = os.getenv("POLLINATIONS_API_URL", "https://gen.pollinations.ai")
-POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
-if not POLLINATIONS_API_KEY:
-    raise RuntimeError("POLLINATIONS_API_KEY is not set. Please add it to your .env file.")
+# Opsional — hanya dibutuhkan bila provider Pollinations yang dipakai.
+# Provider custom OpenAI-compatible (teks & suara) dikonfigurasi lewat API/UI.
+POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY") or ""
 
 BASE_DIR = Path(__file__).parent
 TEMP_DIR = BASE_DIR / "temp_processing"
@@ -377,6 +377,65 @@ async def generate_voice_from_pollinations(prompt: str, voice_model: str, output
         except Exception as e:
             logger.error("Edge-TTS Error: %s", e)
             raise HTTPException(status_code=500, detail=f"Gagal generate suara Edge-TTS: {str(e)}")
+
+    if voice_model.startswith("custom:"):
+        # Voice model custom OpenAI-compatible: POST {base_url}/audio/speech
+        provider_id = voice_model.split(":", 1)[1].strip()
+        with AI_CONFIG_LOCK:
+            entry = next((m for m in _read_ai_config().get("voice_models", [])
+                          if m.get("id") == provider_id), None)
+        if not entry:
+            raise HTTPException(status_code=404,
+                                detail="Voice model custom tidak ditemukan. Tambahkan di Pengaturan AI (⚙️).")
+        logger.info("Generating voice via Custom TTS (OpenAI-compatible) | model: %s, voice: %s, base: %s",
+                    entry["model"], entry.get("voice"), entry["base_url"])
+        headers = {"Content-Type": "application/json"}
+        if entry.get("api_key"):
+            headers["Authorization"] = f"Bearer {entry['api_key']}"
+        payload = {
+            "model": entry["model"],
+            "voice": entry.get("voice") or "alloy",
+            "input": prompt,
+            "response_format": "mp3",
+        }
+        if entry.get("speed"):
+            payload["speed"] = entry["speed"]
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{entry['base_url'].rstrip('/')}/audio/speech",
+                    headers=headers,
+                    json=payload,
+                    timeout=120.0,
+                )
+                response.raise_for_status()
+                content = response.content
+                if len(content) < 512:
+                    raise HTTPException(status_code=502,
+                                        detail=f"API TTS custom [{entry['label']}] mengembalikan audio kosong.")
+                with open(output_path, "wb") as f:
+                    f.write(content)
+                logger.info("Custom TTS saved: %s (%d bytes)", output_path.name, len(content))
+                return None
+            except httpx.TimeoutException:
+                logger.error("Custom TTS timeout (120s) | %s", entry["label"])
+                raise HTTPException(status_code=504, detail="Voice model custom timeout (120s). Coba lagi.")
+            except HTTPException:
+                raise
+            except httpx.HTTPStatusError as e:
+                logger.error("Custom TTS HTTP Error: %s", e)
+                raise HTTPException(status_code=e.response.status_code,
+                                    detail=f"API TTS Error [{entry['label']}]: {e.response.text[:300]}")
+            except Exception as e:
+                logger.error("Unexpected Custom TTS Error: %s", e)
+                raise HTTPException(status_code=500, detail=f"Gagal generate suara custom: {str(e)}")
+
+    if not POLLINATIONS_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="POLLINATIONS_API_KEY belum diisi. Isi di .env — atau pakai voice model custom "
+                   "(OpenAI-compatible) lewat Pengaturan AI (⚙️).",
+        )
 
     if voice_model.startswith("openai-audio"):
         voice_part = "shimmer"
@@ -1374,30 +1433,70 @@ async def generate_hook(
         f"Tulis hooknya sekarang, langsung mulai tanpa penjelasan:"
     )
 
-    logger.info("Generating hook (ASYNC) | product=%s platform=%s variation=%s",
-                product_name, hook_type, variation)
+    # Pilih provider teks: custom OpenAI-compatible (bila aktif) atau Pollinations
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+    provider = None
+    if cfg.get("active_text_model"):
+        provider = next((m for m in cfg.get("text_models", [])
+                         if m.get("id") == cfg["active_text_model"]), None)
+        if provider is None:
+            raise HTTPException(status_code=400,
+                                detail="Model teks aktif tidak ditemukan. Pilih ulang di Pengaturan AI (⚙️).")
+
+    max_tokens = 600 if variation in (
+        "v2_education", "v2_visual", "v2_problem", "v2_personal", "v2_contra",
+        "shock", "story", "review", "premium"
+    ) else 400
+
+    if provider is not None:
+        req_url = f"{provider['base_url'].rstrip('/')}/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if provider.get("api_key"):
+            headers["Authorization"] = f"Bearer {provider['api_key']}"
+        payload = {
+            "model": provider["model"],
+            "messages": [
+                {"role": "system", "content": current_system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": max_tokens,
+        }
+        provider_label = f"Custom Teks [{provider['label']}]"
+    else:
+        if not POLLINATIONS_API_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="POLLINATIONS_API_KEY belum diisi. Isi di .env — atau tambah & aktifkan "
+                       "model teks custom (OpenAI-compatible) lewat Pengaturan AI (⚙️).",
+            )
+        req_url = f"{TEXT_API_URL.rstrip('/')}/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "openai",
+            "messages": [
+                {"role": "system", "content": current_system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": max_tokens,
+            "private": True,
+        }
+        provider_label = "Pollinations"
+
+    logger.info("Generating hook (ASYNC) via %s | product=%s platform=%s variation=%s",
+                provider_label, product_name, hook_type, variation)
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                f"{TEXT_API_URL.rstrip('/')}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "openai",
-                    "messages": [
-                        {"role": "system", "content": current_system_prompt},
-                        {"role": "user",   "content": user_prompt},
-                    ],
-                    "temperature": 0.7,
-                    "max_tokens": 600 if variation in (
-                        "v2_education", "v2_visual", "v2_problem", "v2_personal", "v2_contra",
-                        "shock", "story", "review", "premium"
-                    ) else 400,
-                    "private": True,
-                },
+                req_url,
+                headers=headers,
+                json=payload,
                 timeout=45.0,
             )
             response.raise_for_status()
@@ -1770,6 +1869,190 @@ def fonts_delete(font_id: str, current_user: str = Depends(get_current_user)):
         _write_fonts_meta([e for e in entries if e["id"] != font_id])
     logger.info("Font deleted: %s", font_id)
     return {"status": "ok", "deleted_id": font_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CUSTOM AI PROVIDERS — model teks (hook) & model suara OpenAI-compatible
+# Menyimpan konfigurasi runtime (base_url + api_key + model) per provider di
+# logs/ai_config.json (tidak ikut Git). API key ditampilkan ter-mask.
+# ══════════════════════════════════════════════════════════════════════════════
+from pydantic import BaseModel
+
+AI_CONFIG_FILE = BASE_DIR / "logs" / "ai_config.json"
+AI_CONFIG_LOCK = threading.Lock()
+
+
+class TextModelIn(BaseModel):
+    id: str | None = None
+    label: str
+    base_url: str
+    api_key: str = ""
+    model: str
+
+
+class VoiceModelIn(BaseModel):
+    id: str | None = None
+    label: str
+    base_url: str
+    api_key: str = ""
+    model: str
+    voice: str
+    speed: float = 1.0
+
+
+class ActiveTextModelIn(BaseModel):
+    id: str = ""
+
+
+def _read_ai_config() -> dict:
+    if not AI_CONFIG_FILE.exists():
+        return {"text_models": [], "active_text_model": "", "voice_models": []}
+    try:
+        with open(AI_CONFIG_FILE, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg.setdefault("text_models", [])
+        cfg.setdefault("voice_models", [])
+        cfg.setdefault("active_text_model", "")
+        return cfg
+    except Exception:
+        return {"text_models": [], "active_text_model": "", "voice_models": []}
+
+
+def _write_ai_config(cfg: dict) -> None:
+    AI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(AI_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "*" * len(key)
+    return key[:4] + "…" + ("*" * 4) + key[-2:]
+
+
+def _public_entry(entry: dict) -> dict:
+    item = dict(entry)
+    item["api_key"] = _mask_key(entry.get("api_key", ""))
+    item["has_key"] = bool(entry.get("api_key"))
+    return item
+
+
+def _public_ai_config(cfg: dict) -> dict:
+    return {
+        "text_models": [_public_entry(m) for m in cfg.get("text_models", [])],
+        "active_text_model": cfg.get("active_text_model", ""),
+        "voice_models": [_public_entry(m) for m in cfg.get("voice_models", [])],
+    }
+
+
+def _validate_base_url(url: str) -> str:
+    url = (url or "").strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail="Base URL harus diawali http:// atau https:// dan diakhiri /v1 "
+                   "(contoh: https://api.openai.com/v1)",
+        )
+    return url
+
+
+def _upsert_ai_entry(kind: str, body) -> dict:
+    """kind: 'text_models' | 'voice_models'. Kosongkan api_key saat edit = pertahankan lama."""
+    base = _validate_base_url(body.base_url)
+    label = (body.label or "").strip()
+    model = (body.model or "").strip()
+    if not label or not model:
+        raise HTTPException(status_code=400, detail="Label dan model wajib diisi.")
+    api_key = (body.api_key or "").strip()
+
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+        entries = cfg[kind]
+        if body.id:
+            entry = next((e for e in entries if e.get("id") == body.id), None)
+            if not entry:
+                raise HTTPException(status_code=404, detail=f"Model tidak ditemukan ({kind}).")
+        else:
+            entry = {"id": uuid.uuid4().hex}
+            entries.append(entry)
+        if not api_key and entry.get("api_key"):
+            api_key = entry["api_key"]
+        entry.update({"label": label, "base_url": base, "api_key": api_key, "model": model})
+        if kind == "voice_models":
+            voice = (body.voice or "").strip()
+            if not voice:
+                raise HTTPException(status_code=400, detail="Nama voice wajib diisi (mis. 'alloy', 'nova').")
+            entry["voice"] = voice
+            entry["speed"] = min(max(float(body.speed or 1.0), 0.25), 4.0)
+        _write_ai_config(cfg)
+    return _public_entry(entry)
+
+
+@app.get("/api/ai-config")
+def get_ai_config(current_user: str = Depends(get_current_user)):
+    """Konfigurasi AI custom — model teks (hook) & model suara (API key ter-mask)."""
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+    out = _public_ai_config(cfg)
+    out["pollinations_key_set"] = bool(POLLINATIONS_API_KEY)
+    return out
+
+
+@app.post("/api/ai-config/text-models")
+def upsert_text_model(body: TextModelIn, current_user: str = Depends(get_current_user)):
+    """Tambah/update model teks OpenAI-compatible (chat/completions) untuk generate hook."""
+    return {"status": "success", "model": _upsert_ai_entry("text_models", body)}
+
+
+@app.delete("/api/ai-config/text-models/{model_id}")
+def delete_text_model(model_id: str, current_user: str = Depends(get_current_user)):
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+        before = len(cfg["text_models"])
+        cfg["text_models"] = [m for m in cfg["text_models"] if m.get("id") != model_id]
+        if len(cfg["text_models"]) == before:
+            raise HTTPException(status_code=404, detail="Model teks tidak ditemukan.")
+        if cfg.get("active_text_model") == model_id:
+            cfg["active_text_model"] = ""
+        _write_ai_config(cfg)
+    logger.info("AI text model deleted: %s", model_id)
+    return {"status": "ok", "deleted_id": model_id}
+
+
+@app.post("/api/ai-config/voice-models")
+def upsert_voice_model(body: VoiceModelIn, current_user: str = Depends(get_current_user)):
+    """Tambah/update model suara OpenAI-compatible (audio/speech) untuk voiceover."""
+    return {"status": "success", "model": _upsert_ai_entry("voice_models", body)}
+
+
+@app.delete("/api/ai-config/voice-models/{model_id}")
+def delete_voice_model(model_id: str, current_user: str = Depends(get_current_user)):
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+        before = len(cfg["voice_models"])
+        cfg["voice_models"] = [m for m in cfg["voice_models"] if m.get("id") != model_id]
+        if len(cfg["voice_models"]) == before:
+            raise HTTPException(status_code=404, detail="Model suara tidak ditemukan.")
+        _write_ai_config(cfg)
+    logger.info("AI voice model deleted: %s", model_id)
+    return {"status": "ok", "deleted_id": model_id}
+
+
+@app.post("/api/ai-config/active-text-model")
+def set_active_text_model(body: ActiveTextModelIn, current_user: str = Depends(get_current_user)):
+    """Pilih model teks aktif untuk hook. id='' = Pollinations (bawaan)."""
+    model_id = (body.id or "").strip()
+    with AI_CONFIG_LOCK:
+        cfg = _read_ai_config()
+        if model_id:
+            if not any(m.get("id") == model_id for m in cfg["text_models"]):
+                raise HTTPException(status_code=404, detail="Model teks tidak ditemukan.")
+        cfg["active_text_model"] = model_id
+        _write_ai_config(cfg)
+    logger.info("AI active text model set: %s", model_id or "(pollinations default)")
+    return {"status": "ok", "active_text_model": model_id}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
